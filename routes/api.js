@@ -82,4 +82,42 @@ router.post('/api/checkin/:id', requireAuth, async (req, res) => {
   res.json({ status: 'success', guest: updatedGuest });
 });
 
+// Edit guest details
+router.put('/api/guests/:id', requireAuth, async (req, res) => {
+  const guest = await db.getGuestById(Number(req.params.id));
+  if (!guest) return res.status(404).json({ error: 'Guest not found' });
+
+  const user = req.session.user;
+  if (user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+  const { name, category, dietary_restrictions, table_number, phone, email } = req.body;
+  await db.updateGuest(guest.id, {
+    name: name || guest.name,
+    category: category || guest.category,
+    dietary_restrictions: dietary_restrictions !== undefined ? dietary_restrictions : guest.dietary_restrictions,
+    table_number: table_number !== undefined ? table_number : guest.table_number,
+    phone: phone !== undefined ? phone : guest.phone,
+    email: email !== undefined ? email : guest.email,
+  });
+
+  const event = await db.getActiveEvent();
+  if (event) {
+    await db.logActivity(event.id, 'edit_guest', {
+      guestId: guest.id,
+      userId: user.id,
+      details: `${user.display_name} edited guest: ${name || guest.name}`,
+    });
+  }
+
+  const updated = await db.getGuestById(guest.id);
+  res.json({ status: 'ok', guest: updated });
+});
+
+// Get single guest
+router.get('/api/guests/:id', requireAuth, async (req, res) => {
+  const guest = await db.getGuestById(Number(req.params.id));
+  if (!guest) return res.status(404).json({ error: 'Guest not found' });
+  res.json(guest);
+});
+
 module.exports = router;

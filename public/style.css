@@ -440,6 +440,45 @@ select {
   min-width: 100px;
 }
 
+/* ── Modal ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-card {
+  background: var(--bg-card);
+  border: 1px solid var(--gold);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 550px;
+  width: 100%;
+}
+
+.modal-card h2 {
+  color: var(--gold);
+  margin-bottom: 16px;
+}
+
+/* ── Actions Cell ── */
+.actions-cell {
+  white-space: nowrap;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* ── Guest Add Form ── */
+.guest-add-form .form-row {
+  gap: 8px;
+}
+
 /* ── Responsive ── */
 @media (max-width: 600px) {
   .navbar { padding: 10px 14px; }
@@ -447,8 +486,10 @@ select {
   .stats-grid { grid-template-columns: 1fr 1fr; }
   .guest-table th:nth-child(3),
   .guest-table td:nth-child(3),
-  .guest-table th:nth-child(5),
-  .guest-table td:nth-child(5) { display: none; }
+  .guest-table th:nth-child(4),
+  .guest-table td:nth-child(4),
+  .guest-table th:nth-child(6),
+  .guest-table td:nth-child(6) { display: none; }
   .form-row { flex-direction: column; }
   .form-row input, .form-row select { min-width: 100%; }
 }

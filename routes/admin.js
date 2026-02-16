@@ -97,6 +97,46 @@ router.post('/admin/import', requireAdmin, upload.single('csv'), async (req, res
   res.redirect('/admin');
 });
 
+// ── Add Single Guest ──
+router.post('/admin/guest/add', requireAdmin, async (req, res) => {
+  const event = await db.getActiveEvent();
+  if (!event) return res.redirect('/admin');
+  const user = req.session.user;
+  const { name, category, dietary, table_number, phone, email } = req.body;
+
+  if (!name || !name.trim()) return res.redirect('/admin');
+
+  const guest = await db.addSingleGuest(event.id, {
+    name, category, dietary_restrictions: dietary, table_number, phone, email,
+  });
+
+  await db.logActivity(event.id, 'add_guest', {
+    guestId: guest.id,
+    userId: user.id,
+    details: `${user.display_name} added guest: ${guest.name}`,
+  });
+
+  res.redirect('/admin');
+});
+
+// ── Delete Single Guest ──
+router.post('/admin/guest/:id/delete', requireAdmin, async (req, res) => {
+  const guest = await db.getGuestById(Number(req.params.id));
+  if (!guest) return res.redirect('/admin');
+  const event = await db.getActiveEvent();
+  const user = req.session.user;
+
+  await db.deleteGuest(guest.id);
+
+  if (event) {
+    await db.logActivity(event.id, 'delete_guest', {
+      userId: user.id,
+      details: `${user.display_name} deleted guest: ${guest.name}`,
+    });
+  }
+  res.redirect('/admin');
+});
+
 // ── Export PDF Tickets ──
 router.get('/admin/export-pdf', requireAuth, async (req, res) => {
   const event = await db.getActiveEvent();
@@ -266,11 +306,36 @@ function renderNav(user) {
 function renderDashboard(event, user) {
   const isAdmin = user.role === 'admin';
 
+  const addGuestSection = isAdmin ? `
+    <div class="card">
+      <h2>Add Guest</h2>
+      <form method="POST" action="/admin/guest/add" class="guest-add-form">
+        <div class="form-row">
+          <input type="text" name="name" placeholder="Guest Name *" required>
+          <select name="category">
+            <option value="guest">Guest</option>
+            <option value="student">Student</option>
+            <option value="parent">Parent</option>
+            <option value="teacher">Teacher</option>
+            <option value="vip">VIP</option>
+          </select>
+          <input type="text" name="table_number" placeholder="Table #">
+        </div>
+        <div class="form-row" style="margin-top:10px">
+          <input type="text" name="dietary" placeholder="Dietary restrictions">
+          <input type="text" name="phone" placeholder="Phone">
+          <input type="text" name="email" placeholder="Email">
+          <button type="submit" class="btn btn-primary">Add Guest</button>
+        </div>
+      </form>
+    </div>` : '';
+
   const importSection = isAdmin ? `
     <div class="card">
-      <h2>Import Guests</h2>
+      <h2>Bulk Import</h2>
       <form method="POST" action="/admin/import" enctype="multipart/form-data">
-        <textarea name="names" placeholder="Paste guest names, one per line..." rows="4"></textarea>
+        <textarea name="names" placeholder="Paste guest names, one per line..." rows="3"></textarea>
+        <p class="muted" style="font-size:0.8rem;margin:6px 0">Or upload a CSV with columns: name, category, dietary, table, phone, email</p>
         <div class="form-actions">
           <button type="submit" class="btn btn-primary">Import Names</button>
           <label class="btn btn-secondary file-upload">
@@ -353,6 +418,7 @@ function renderDashboard(event, user) {
       </div>
     </div>
 
+    ${addGuestSection}
     ${importSection}
     ${eventSettings}
 
@@ -367,6 +433,7 @@ function renderDashboard(event, user) {
               <th>Name</th>
               <th>Category</th>
               <th>Table</th>
+              <th>Dietary</th>
               <th>Status</th>
               <th>Time</th>
               <th>Actions</th>

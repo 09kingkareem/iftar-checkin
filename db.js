@@ -170,6 +170,27 @@ async function getStats(eventId) {
   return { total: parseInt(rows[0].total) || 0, checkedIn: parseInt(rows[0].checked_in) || 0 };
 }
 
+async function addSingleGuest(eventId, { name, category, dietary_restrictions, table_number, phone, email }) {
+  const token = require('crypto').randomBytes(9).toString('base64url').slice(0, 12);
+  const { rows } = await pool.query(
+    `INSERT INTO guests (event_id, name, token, category, dietary_restrictions, table_number, phone, email)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [eventId, name.trim(), token, category || 'guest', dietary_restrictions || null, table_number || null, phone || null, email || null]
+  );
+  return rows[0];
+}
+
+async function updateGuest(id, { name, category, dietary_restrictions, table_number, phone, email }) {
+  await pool.query(
+    `UPDATE guests SET name=$1, category=$2, dietary_restrictions=$3, table_number=$4, phone=$5, email=$6 WHERE id=$7`,
+    [name.trim(), category || 'guest', dietary_restrictions || null, table_number || null, phone || null, email || null, id]
+  );
+}
+
+async function deleteGuest(id) {
+  await pool.query('DELETE FROM guests WHERE id = $1', [id]);
+}
+
 async function deleteAllGuests(eventId) {
   await pool.query('DELETE FROM guests WHERE event_id = $1', [eventId]);
 }
@@ -210,7 +231,7 @@ module.exports = {
   init,
   getActiveEvent, updateEvent,
   getUserByUsername, getUserById, getAllUsers, createUser, updateUserActive, updateLastLogin,
-  addGuests, addGuestsBulk, getAllGuests, getGuestByToken, getGuestById,
-  checkInGuest, incrementScanCount, searchGuests, getStats, deleteAllGuests,
+  addGuests, addGuestsBulk, addSingleGuest, getAllGuests, getGuestByToken, getGuestById,
+  checkInGuest, incrementScanCount, searchGuests, getStats, updateGuest, deleteGuest, deleteAllGuests,
   logActivity, getRecentActivity, getCheckinTimeline,
 };

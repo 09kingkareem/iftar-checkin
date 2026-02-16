@@ -50,19 +50,23 @@ async function refreshGuests(search = '') {
     if (!tbody) return;
 
     tbody.innerHTML = guests.length === 0
-      ? '<tr><td colspan="6" class="text-center muted" style="padding:20px">No guests found</td></tr>'
+      ? '<tr><td colspan="7" class="text-center muted" style="padding:20px">No guests found</td></tr>'
       : guests.map(g => `
         <tr>
-          <td>${esc(g.name)}</td>
+          <td>
+            ${esc(g.name)}
+            ${g.phone ? `<br><span class="muted" style="font-size:0.75rem">${esc(g.phone)}</span>` : ''}
+            ${g.email ? `<br><span class="muted" style="font-size:0.75rem">${esc(g.email)}</span>` : ''}
+          </td>
           <td><span class="badge cat-${g.category || 'guest'}">${g.category || 'guest'}</span></td>
           <td>${esc(g.table_number || '-')}</td>
+          <td>${esc(g.dietary_restrictions || '-')}</td>
           <td><span class="badge ${g.checked_in ? 'badge-checked' : 'badge-pending'}">${g.checked_in ? 'Checked In' : 'Pending'}</span></td>
           <td>${g.checked_in_at ? new Date(g.checked_in_at).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) : '-'}</td>
-          <td>
-            ${g.checked_in ? `<a href="/admin/ticket/${g.id}" class="btn btn-sm btn-secondary" target="_blank">Ticket</a>` : `
-              <button class="btn btn-sm btn-primary" onclick="manualCheckin(${g.id})">Check In</button>
-              <a href="/admin/ticket/${g.id}" class="btn btn-sm btn-secondary" target="_blank">Ticket</a>
-            `}
+          <td class="actions-cell">
+            ${!g.checked_in ? `<button class="btn btn-sm btn-primary" onclick="manualCheckin(${g.id})">Check In</button>` : ''}
+            <button class="btn btn-sm btn-secondary" onclick="openEditModal(${g.id})">Edit</button>
+            <a href="/admin/ticket/${g.id}" class="btn btn-sm btn-secondary" target="_blank">Ticket</a>
           </td>
         </tr>
       `).join('');
@@ -202,6 +206,110 @@ function esc(str) {
   const div = document.createElement('div');
   div.textContent = str || '';
   return div.innerHTML;
+}
+
+// ── Edit Modal ──
+function createEditModal() {
+  if (document.getElementById('edit-modal')) return;
+  const modal = document.createElement('div');
+  modal.id = 'edit-modal';
+  modal.className = 'modal-overlay';
+  modal.style.display = 'none';
+  modal.innerHTML = `
+    <div class="modal-card">
+      <h2>Edit Guest</h2>
+      <input type="hidden" id="edit-id">
+      <div class="form-row" style="margin-bottom:10px">
+        <input type="text" id="edit-name" placeholder="Name *">
+        <select id="edit-category">
+          <option value="guest">Guest</option>
+          <option value="student">Student</option>
+          <option value="parent">Parent</option>
+          <option value="teacher">Teacher</option>
+          <option value="vip">VIP</option>
+        </select>
+      </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <input type="text" id="edit-table" placeholder="Table #">
+        <input type="text" id="edit-dietary" placeholder="Dietary restrictions">
+      </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <input type="text" id="edit-phone" placeholder="Phone">
+        <input type="text" id="edit-email" placeholder="Email">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="saveEdit()">Save</button>
+        <button class="btn btn-danger" onclick="deleteGuest()">Delete Guest</button>
+        <button class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e) {
+    if (e.target === modal) closeEditModal();
+  });
+}
+
+async function openEditModal(id) {
+  createEditModal();
+  try {
+    const res = await fetch(`/api/guests/${id}`);
+    const g = await res.json();
+    document.getElementById('edit-id').value = g.id;
+    document.getElementById('edit-name').value = g.name || '';
+    document.getElementById('edit-category').value = g.category || 'guest';
+    document.getElementById('edit-table').value = g.table_number || '';
+    document.getElementById('edit-dietary').value = g.dietary_restrictions || '';
+    document.getElementById('edit-phone').value = g.phone || '';
+    document.getElementById('edit-email').value = g.email || '';
+    document.getElementById('edit-modal').style.display = 'flex';
+  } catch (e) { alert('Failed to load guest'); }
+}
+
+function closeEditModal() {
+  const modal = document.getElementById('edit-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function saveEdit() {
+  const id = document.getElementById('edit-id').value;
+  const body = {
+    name: document.getElementById('edit-name').value,
+    category: document.getElementById('edit-category').value,
+    table_number: document.getElementById('edit-table').value,
+    dietary_restrictions: document.getElementById('edit-dietary').value,
+    phone: document.getElementById('edit-phone').value,
+    email: document.getElementById('edit-email').value,
+  };
+  try {
+    const res = await fetch(`/api/guests/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      closeEditModal();
+      refreshGuests();
+    } else {
+      const data = await res.json();
+      alert(data.error || 'Failed to save');
+    }
+  } catch (e) { alert('Failed to save'); }
+}
+
+async function deleteGuest() {
+  const id = document.getElementById('edit-id').value;
+  const name = document.getElementById('edit-name').value;
+  if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
+
+  try {
+    // Use form POST for delete
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = `/admin/guest/${id}/delete`;
+    document.body.appendChild(form);
+    form.submit();
+  } catch (e) { alert('Failed to delete'); }
 }
 
 // ── Init ──
