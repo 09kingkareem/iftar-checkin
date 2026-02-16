@@ -22,6 +22,7 @@ const CATEGORY_COLORS = {
   teacher: '#9b59b6',
   vip: '#f39c12',
   guest: '#95a5a6',
+  family: '#e67e22',
 };
 
 // ── Dashboard ──
@@ -44,7 +45,7 @@ router.post('/admin/import', requireAdmin, upload.single('csv'), async (req, res
     const lines = content.split(/\r?\n/).filter(l => l.trim());
     if (lines.length === 0) return res.redirect('/admin');
 
-    const VALID_CATEGORIES = ['student', 'parent', 'teacher', 'vip', 'guest'];
+    const VALID_CATEGORIES = ['student', 'parent', 'teacher', 'vip', 'guest', 'family'];
 
     // Detect if first row is a header (contains "name" in any column)
     const firstRow = lines[0].toLowerCase().split(',').map(h => h.trim());
@@ -62,11 +63,12 @@ router.post('/admin/import', requireAdmin, upload.single('csv'), async (req, res
         table:   Math.max(firstRow.indexOf('table'), firstRow.indexOf('table_number')),
         phone:   firstRow.indexOf('phone'),
         email:   firstRow.indexOf('email'),
+        family_size: firstRow.indexOf('family_size'),
       };
     } else {
-      // No header: assume positional — name, category, dietary, table, phone, email
+      // No header: assume positional — name, category, dietary, table, phone, email, family_size
       dataLines = lines;
-      colMap = { name: 0, cat: 1, dietary: 2, table: 3, phone: 4, email: 5 };
+      colMap = { name: 0, cat: 1, dietary: 2, table: 3, phone: 4, email: 5, family_size: 6 };
     }
 
     const guestRows = [];
@@ -85,6 +87,7 @@ router.post('/admin/import', requireAdmin, upload.single('csv'), async (req, res
         table_number: colMap.table >= 0 ? cols[colMap.table] || null : null,
         phone: colMap.phone >= 0 ? cols[colMap.phone] || null : null,
         email: colMap.email >= 0 ? cols[colMap.email] || null : null,
+        family_size: colMap.family_size >= 0 ? cols[colMap.family_size] || 1 : 1,
       });
     }
 
@@ -114,12 +117,12 @@ router.post('/admin/guest/add', requireAdmin, async (req, res) => {
   const event = await db.getActiveEvent();
   if (!event) return res.redirect('/admin');
   const user = req.session.user;
-  const { name, category, dietary, table_number, phone, email } = req.body;
+  const { name, category, dietary, table_number, phone, email, family_size } = req.body;
 
   if (!name || !name.trim()) return res.redirect('/admin');
 
   const guest = await db.addSingleGuest(event.id, {
-    name, category, dietary_restrictions: dietary, table_number, phone, email,
+    name, category, dietary_restrictions: dietary, table_number, phone, email, family_size,
   });
 
   await db.logActivity(event.id, 'add_guest', {
@@ -230,6 +233,37 @@ router.post('/admin/checkin/:id', requireAuth, async (req, res) => {
   res.redirect('/admin');
 });
 
+// ── Send Invitations via n8n ──
+router.post('/admin/send-invitations', requireAdmin, async (req, res) => {
+  const webhookUrl = process.env.N8N_WEBHOOK_URL;
+  if (!webhookUrl) return res.redirect('/admin');
+
+  const event = await db.getActiveEvent();
+  if (!event) return res.redirect('/admin');
+
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        app_base_url: baseUrl,
+        api_key: process.env.N8N_API_KEY,
+        event: { name: event.name, date: event.event_date, time: event.event_time, venue: event.venue },
+      }),
+    });
+  } catch (e) {
+    console.error('Failed to trigger n8n webhook:', e.message);
+  }
+
+  await db.logActivity(event.id, 'send_invitations', {
+    userId: req.session.user.id,
+    details: `${req.session.user.display_name} triggered email invitations via n8n`,
+  });
+
+  res.redirect('/admin');
+});
+
 // ── Reset (delete all guests) ──
 router.post('/admin/reset', requireAdmin, async (req, res) => {
   const event = await db.getActiveEvent();
@@ -324,13 +358,17 @@ function renderDashboard(event, user) {
       <form method="POST" action="/admin/guest/add" class="guest-add-form">
         <div class="form-row">
           <input type="text" name="name" placeholder="Guest Name *" required>
-          <select name="category">
+          <select name="category" onchange="document.getElementById('family-size-wrap').style.display=this.value==='family'?'':'none'">
             <option value="guest">Guest</option>
             <option value="student">Student</option>
             <option value="parent">Parent</option>
             <option value="teacher">Teacher</option>
             <option value="vip">VIP</option>
+            <option value="family">Family</option>
           </select>
+          <span id="family-size-wrap" style="display:none">
+            <input type="number" name="family_size" min="1" value="2" placeholder="Members" style="width:80px">
+          </span>
           <input type="text" name="table_number" placeholder="Table #">
         </div>
         <div class="form-row" style="margin-top:10px">
@@ -357,6 +395,11 @@ function renderDashboard(event, user) {
           <a href="/admin/export-pdf" class="btn btn-gold">Download Tickets PDF</a>
         </div>
       </form>
+      ${process.env.N8N_WEBHOOK_URL ? `
+        <form method="POST" action="/admin/send-invitations" style="margin-top:12px">
+          <button type="submit" class="btn btn-gold" onclick="return confirm('Send email invitations to all guests with email addresses?')">Send Invitations</button>
+        </form>
+      ` : ''}
     </div>` : '';
 
   const eventSettings = isAdmin ? `

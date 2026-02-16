@@ -101,8 +101,8 @@ async function addGuestsBulk(guestRows, eventId) {
       if (!name) continue;
       const token = require('crypto').randomBytes(9).toString('base64url').slice(0, 12);
       await client.query(
-        `INSERT INTO guests (event_id, name, token, category, dietary_restrictions, table_number, phone, email)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        `INSERT INTO guests (event_id, name, token, category, dietary_restrictions, table_number, phone, email, family_size)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           eventId, name, token,
           g.category || 'guest',
@@ -110,6 +110,7 @@ async function addGuestsBulk(guestRows, eventId) {
           g.table_number || g.table || null,
           g.phone || null,
           g.email || null,
+          parseInt(g.family_size) || 1,
         ]
       );
     }
@@ -164,26 +165,26 @@ async function searchGuests(query, eventId) {
 
 async function getStats(eventId) {
   const { rows } = await pool.query(
-    'SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE checked_in = true) as checked_in FROM guests WHERE event_id = $1',
+    'SELECT COALESCE(SUM(family_size),0) as total, COALESCE(SUM(family_size) FILTER (WHERE checked_in = true),0) as checked_in FROM guests WHERE event_id = $1',
     [eventId]
   );
   return { total: parseInt(rows[0].total) || 0, checkedIn: parseInt(rows[0].checked_in) || 0 };
 }
 
-async function addSingleGuest(eventId, { name, category, dietary_restrictions, table_number, phone, email }) {
+async function addSingleGuest(eventId, { name, category, dietary_restrictions, table_number, phone, email, family_size }) {
   const token = require('crypto').randomBytes(9).toString('base64url').slice(0, 12);
   const { rows } = await pool.query(
-    `INSERT INTO guests (event_id, name, token, category, dietary_restrictions, table_number, phone, email)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-    [eventId, name.trim(), token, category || 'guest', dietary_restrictions || null, table_number || null, phone || null, email || null]
+    `INSERT INTO guests (event_id, name, token, category, dietary_restrictions, table_number, phone, email, family_size)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [eventId, name.trim(), token, category || 'guest', dietary_restrictions || null, table_number || null, phone || null, email || null, parseInt(family_size) || 1]
   );
   return rows[0];
 }
 
-async function updateGuest(id, { name, category, dietary_restrictions, table_number, phone, email }) {
+async function updateGuest(id, { name, category, dietary_restrictions, table_number, phone, email, family_size }) {
   await pool.query(
-    `UPDATE guests SET name=$1, category=$2, dietary_restrictions=$3, table_number=$4, phone=$5, email=$6 WHERE id=$7`,
-    [name.trim(), category || 'guest', dietary_restrictions || null, table_number || null, phone || null, email || null, id]
+    `UPDATE guests SET name=$1, category=$2, dietary_restrictions=$3, table_number=$4, phone=$5, email=$6, family_size=$7 WHERE id=$8`,
+    [name.trim(), category || 'guest', dietary_restrictions || null, table_number || null, phone || null, email || null, parseInt(family_size) || 1, id]
   );
 }
 

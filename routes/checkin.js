@@ -68,17 +68,22 @@ router.get('/checkin/:token', async (req, res) => {
     if (req.app.locals.broadcast) {
       req.app.locals.broadcast({
         type: 'checkin',
-        guest: { id: guest.id, name: guest.name, category: guest.category },
+        guest: { id: guest.id, name: guest.name, category: guest.category, family_size: guest.family_size },
         timestamp: new Date().toISOString(),
       });
     }
   }
 
+  const isFamily = guest.category === 'family' && guest.family_size > 1;
+  const checkinMsg = isFamily
+    ? `All ${guest.family_size} family members are checked in. Enjoy the iftar!`
+    : "You're checked in. Enjoy the iftar!";
+
   res.send(renderCheckin({
     status: 'success',
     icon: '&#9989;',
     heading: `Welcome, ${escapeHtml(guest.name)}!`,
-    message: "You're checked in. Enjoy the iftar!",
+    message: checkinMsg,
     subtitle: guest.table_number ? `Table: ${escapeHtml(guest.table_number)}` : '',
   }));
 });

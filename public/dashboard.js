@@ -55,6 +55,7 @@ async function refreshGuests(search = '') {
         <tr>
           <td>
             ${esc(g.name)}
+            ${g.category === 'family' && g.family_size > 1 ? `<br><span class="muted" style="font-size:0.75rem">${g.family_size} members</span>` : ''}
             ${g.phone ? `<br><span class="muted" style="font-size:0.75rem">${esc(g.phone)}</span>` : ''}
             ${g.email ? `<br><span class="muted" style="font-size:0.75rem">${esc(g.email)}</span>` : ''}
           </td>
@@ -221,13 +222,18 @@ function createEditModal() {
       <input type="hidden" id="edit-id">
       <div class="form-row" style="margin-bottom:10px">
         <input type="text" id="edit-name" placeholder="Name *">
-        <select id="edit-category">
+        <select id="edit-category" onchange="document.getElementById('edit-family-size-wrap').style.display=this.value==='family'?'':'none'">
           <option value="guest">Guest</option>
           <option value="student">Student</option>
           <option value="parent">Parent</option>
           <option value="teacher">Teacher</option>
           <option value="vip">VIP</option>
+          <option value="family">Family</option>
         </select>
+      </div>
+      <div id="edit-family-size-wrap" class="form-row" style="margin-bottom:10px;display:none">
+        <label style="color:#8899aa;font-size:0.85rem">Family Members:</label>
+        <input type="number" id="edit-family-size" min="1" value="2" style="width:80px">
       </div>
       <div class="form-row" style="margin-bottom:10px">
         <input type="text" id="edit-table" placeholder="Table #">
@@ -258,6 +264,8 @@ async function openEditModal(id) {
     document.getElementById('edit-id').value = g.id;
     document.getElementById('edit-name').value = g.name || '';
     document.getElementById('edit-category').value = g.category || 'guest';
+    document.getElementById('edit-family-size').value = g.family_size || 1;
+    document.getElementById('edit-family-size-wrap').style.display = g.category === 'family' ? '' : 'none';
     document.getElementById('edit-table').value = g.table_number || '';
     document.getElementById('edit-dietary').value = g.dietary_restrictions || '';
     document.getElementById('edit-phone').value = g.phone || '';
@@ -273,13 +281,15 @@ function closeEditModal() {
 
 async function saveEdit() {
   const id = document.getElementById('edit-id').value;
+  const category = document.getElementById('edit-category').value;
   const body = {
     name: document.getElementById('edit-name').value,
-    category: document.getElementById('edit-category').value,
+    category,
     table_number: document.getElementById('edit-table').value,
     dietary_restrictions: document.getElementById('edit-dietary').value,
     phone: document.getElementById('edit-phone').value,
     email: document.getElementById('edit-email').value,
+    family_size: category === 'family' ? parseInt(document.getElementById('edit-family-size').value) || 1 : 1,
   };
   try {
     const res = await fetch(`/api/guests/${id}`, {

@@ -1,8 +1,18 @@
 const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { generateSingleTicket } = require('../generate-pdf');
 
 const router = express.Router();
+
+// ── API Key middleware for n8n ──
+function requireApiKey(req, res, next) {
+  const apiKey = process.env.N8N_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'API key not configured' });
+  const provided = req.headers['x-api-key'];
+  if (!provided || provided !== apiKey) return res.status(401).json({ error: 'Invalid API key' });
+  next();
+}
 
 // Stats for live dashboard
 router.get('/api/stats', requireAuth, async (req, res) => {
@@ -90,7 +100,7 @@ router.put('/api/guests/:id', requireAuth, async (req, res) => {
   const user = req.session.user;
   if (user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
-  const { name, category, dietary_restrictions, table_number, phone, email } = req.body;
+  const { name, category, dietary_restrictions, table_number, phone, email, family_size } = req.body;
   await db.updateGuest(guest.id, {
     name: name || guest.name,
     category: category || guest.category,
@@ -98,6 +108,7 @@ router.put('/api/guests/:id', requireAuth, async (req, res) => {
     table_number: table_number !== undefined ? table_number : guest.table_number,
     phone: phone !== undefined ? phone : guest.phone,
     email: email !== undefined ? email : guest.email,
+    family_size: family_size !== undefined ? family_size : guest.family_size,
   });
 
   const event = await db.getActiveEvent();
@@ -118,6 +129,27 @@ router.get('/api/guests/:id', requireAuth, async (req, res) => {
   const guest = await db.getGuestById(Number(req.params.id));
   if (!guest) return res.status(404).json({ error: 'Guest not found' });
   res.json(guest);
+});
+
+// ── n8n: Get guests with email addresses ──
+router.get('/api/guests-with-email', requireApiKey, async (req, res) => {
+  const event = await db.getActiveEvent();
+  if (!event) return res.json([]);
+  const guests = await db.getAllGuests(event.id);
+  const withEmail = guests.filter(g => g.email && g.email.trim());
+  res.json(withEmail);
+});
+
+// ── n8n: Download single ticket PDF by guest ID ──
+router.get('/api/ticket/:id', requireApiKey, async (req, res) => {
+  const guest = await db.getGuestById(Number(req.params.id));
+  if (!guest) return res.status(404).json({ error: 'Guest not found' });
+
+  const event = await db.getActiveEvent();
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="ticket-${guest.id}.pdf"`);
+  await generateSingleTicket(guest, baseUrl, res, event);
 });
 
 module.exports = router;

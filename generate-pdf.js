@@ -36,6 +36,7 @@ const CATEGORIES = {
   parent:  { accent: '#5BAF6E', bg: '#1A3A22', label: 'PARENT',     strip: '#5BAF6E' },
   teacher: { accent: '#9B6DC6', bg: '#2A1D3E', label: 'TEACHER',    strip: '#9B6DC6' },
   guest:   { accent: '#8C9AA8', bg: '#1E2A36', label: 'GUEST',      strip: '#8C9AA8' },
+  family:  { accent: '#E67E22', bg: '#3D2A10', label: 'FAMILY',     strip: '#E67E22' },
 };
 
 function getCat(category) {
@@ -171,7 +172,16 @@ async function drawBadge(doc, guest, baseUrl, event, x, y) {
     .lineWidth(0.8).strokeColor(cat.accent).stroke();
   doc.font('Helvetica-Bold').fontSize(8).fillColor(cat.accent);
   doc.text(badgeLabel, badgeX, curY + 4.5, { width: badgeTextW, align: 'center' });
-  curY += badgeH + 14;
+  curY += badgeH + 6;
+
+  // Family member count
+  if (guest.category === 'family' && guest.family_size > 1) {
+    doc.font('Helvetica').fontSize(9).fillColor(C.textLight);
+    doc.text(`${guest.family_size} Members`, innerX, curY, { width: innerW, align: 'center' });
+    curY += 14;
+  } else {
+    curY += 8;
+  }
 
   // Table number (if exists)
   if (guest.table_number) {

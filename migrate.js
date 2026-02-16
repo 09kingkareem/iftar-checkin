@@ -31,7 +31,8 @@ async function migrate(pool) {
       event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       token TEXT UNIQUE NOT NULL,
-      category TEXT DEFAULT 'guest' CHECK (category IN ('student', 'parent', 'teacher', 'vip', 'guest')),
+      category TEXT DEFAULT 'guest' CHECK (category IN ('student', 'parent', 'teacher', 'vip', 'guest', 'family')),
+      family_size INTEGER DEFAULT 1,
       dietary_restrictions TEXT,
       table_number TEXT,
       phone TEXT,
@@ -84,6 +85,28 @@ async function migrate(pool) {
       ['admin', hash, 'Administrator', 'admin']
     );
     console.log('Default admin created — username: admin, password: admin123');
+  }
+
+  // ── Auto-migrate existing databases: add family_size column + update category constraint ──
+  const { rows: colCheck } = await pool.query(`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'guests' AND column_name = 'family_size'
+  `);
+  if (colCheck.length === 0) {
+    await pool.query('ALTER TABLE guests ADD COLUMN family_size INTEGER DEFAULT 1');
+    console.log('Added family_size column to guests table.');
+  }
+
+  // Update category constraint to include 'family'
+  try {
+    await pool.query(`
+      ALTER TABLE guests DROP CONSTRAINT IF EXISTS guests_category_check;
+      ALTER TABLE guests ADD CONSTRAINT guests_category_check
+        CHECK (category IN ('student', 'parent', 'teacher', 'vip', 'guest', 'family'));
+    `);
+    console.log('Updated category constraint to include family.');
+  } catch (e) {
+    // Constraint may already be correct — that's fine
   }
 
   console.log('Database migration complete.');

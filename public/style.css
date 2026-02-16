@@ -315,6 +315,7 @@ select {
 .cat-teacher { background: rgba(155,109,198,0.15); color: #9B6DC6; }
 .cat-vip { background: rgba(201,168,76,0.2); color: #C9A84C; border: 1px solid rgba(201,168,76,0.3); }
 .cat-guest { background: rgba(140,154,168,0.15); color: #8C9AA8; }
+.cat-family { background: rgba(230,126,34,0.15); color: #E67E22; }
 
 /* Role badges */
 .role-badge {
