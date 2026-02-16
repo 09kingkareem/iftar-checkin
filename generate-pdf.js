@@ -1,184 +1,246 @@
 const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
 
-// ── Colors ──
-const DARK_GREEN = '#0B3D2E';
-const NAVY = '#0a1628';
-const GOLD = '#D4AF37';
-const GOLD_LIGHT = '#F0D060';
-const WHITE = '#FFFFFF';
-const CREAM = '#FFF8E7';
+// ══════════════════════════════════════════════════════════
+// Card dimensions: 5.5" x 3.5" landscape (396 x 252 pts)
+// Layout: 1 column, 3 rows per A4 page = 3 cards/page
+// ══════════════════════════════════════════════════════════
 
-// ── Ticket Layout: 2 per A4 page (half-page each) ──
-const PAGE_W = 595.28;
+const CARD_W = 396;   // 5.5 inches
+const CARD_H = 252;   // 3.5 inches
+const PAGE_W = 595.28; // A4
 const PAGE_H = 841.89;
-const TICKET_H = PAGE_H / 2;
-const MARGIN = 30;
+const CARDS_PER_PAGE = 3;
+const CARD_X = (PAGE_W - CARD_W) / 2; // centered horizontally
+const PAGE_PAD_Y = (PAGE_H - CARD_H * CARDS_PER_PAGE) / (CARDS_PER_PAGE + 1); // even vertical spacing
 
+// ── Color Palette ──
+const C = {
+  navy:      '#0B1A2E',
+  navyLight: '#122240',
+  gold:      '#C9A84C',
+  goldBright:'#E8C547',
+  goldDark:  '#A68A3E',
+  white:     '#FFFFFF',
+  cream:     '#F5ECD7',
+  textLight: '#D4CFC0',
+  textMuted: '#8A8575',
+};
+
+// ── Category Theme: accent color + label ──
+const CATEGORIES = {
+  vip:     { accent: '#C9A84C', bg: '#3D3418', label: 'VIP GUEST' },
+  student: { accent: '#4A90D9', bg: '#152A4A', label: 'STUDENT' },
+  parent:  { accent: '#5BAF6E', bg: '#1A3A22', label: 'PARENT' },
+  teacher: { accent: '#9B6DC6', bg: '#2A1D3E', label: 'TEACHER' },
+  guest:   { accent: '#8C9AA8', bg: '#1E2A36', label: 'GUEST' },
+};
+
+function getCat(category) {
+  return CATEGORIES[(category || 'guest').toLowerCase()] || CATEGORIES.guest;
+}
+
+// ══════════════════════════════════════════════════════════
+// Multi-guest PDF: 3 cards per A4 page
+// ══════════════════════════════════════════════════════════
 async function generatePDF(guests, baseUrl, outputStream, event) {
   const doc = new PDFDocument({ size: 'A4', margin: 0 });
   doc.pipe(outputStream);
 
   for (let i = 0; i < guests.length; i++) {
-    if (i > 0 && i % 2 === 0) doc.addPage();
-    const slot = i % 2; // 0 = top half, 1 = bottom half
-    const yOffset = slot * TICKET_H;
-    await drawTicket(doc, guests[i], baseUrl, event, yOffset);
+    if (i > 0 && i % CARDS_PER_PAGE === 0) doc.addPage();
 
-    // Dashed cut line between tickets
-    if (slot === 0) {
-      doc.save();
-      doc.strokeColor('#666666').lineWidth(0.5).dash(5, { space: 5 });
-      doc.moveTo(MARGIN, TICKET_H).lineTo(PAGE_W - MARGIN, TICKET_H).stroke();
-      doc.restore();
-    }
+    const slot = i % CARDS_PER_PAGE;
+    const cardY = PAGE_PAD_Y + slot * (CARD_H + PAGE_PAD_Y);
+
+    await drawCard(doc, guests[i], baseUrl, event, CARD_X, cardY);
+
+    // Cut guides (light gray corner marks)
+    drawCutMarks(doc, CARD_X, cardY, CARD_W, CARD_H);
   }
 
   doc.end();
 }
 
+// ══════════════════════════════════════════════════════════
+// Single ticket: one card centered on A4
+// ══════════════════════════════════════════════════════════
 async function generateSingleTicket(guest, baseUrl, outputStream, event) {
   const doc = new PDFDocument({ size: 'A4', margin: 0 });
   doc.pipe(outputStream);
-  await drawTicket(doc, guest, baseUrl, event, 0);
+
+  const cardY = (PAGE_H - CARD_H) / 2;
+  await drawCard(doc, guest, baseUrl, event, CARD_X, cardY);
+  drawCutMarks(doc, CARD_X, cardY, CARD_W, CARD_H);
+
   doc.end();
 }
 
-async function drawTicket(doc, guest, baseUrl, event, yOffset) {
-  const x = 0;
-  const y = yOffset;
-  const w = PAGE_W;
-  const h = TICKET_H;
+// ══════════════════════════════════════════════════════════
+// Core card renderer
+// ══════════════════════════════════════════════════════════
+async function drawCard(doc, guest, baseUrl, event, x, y) {
+  const cat = getCat(guest.category);
+  const pad = 16;
 
-  // ── Background ──
+  // ── 1. Background ──
   doc.save();
-  doc.rect(x, y, w, h).fill(NAVY);
+  doc.roundedRect(x, y, CARD_W, CARD_H, 6).fill(C.navy);
 
-  // Subtle gradient overlay (dark green at bottom)
-  const grad = doc.linearGradient(x, y, x, y + h);
-  grad.stop(0, NAVY, 0.9).stop(1, DARK_GREEN, 0.9);
-  doc.rect(x, y, w, h).fill(grad);
+  // Subtle gradient overlay
+  const grad = doc.linearGradient(x, y, x + CARD_W, y + CARD_H);
+  grad.stop(0, C.navy).stop(1, C.navyLight);
+  doc.roundedRect(x, y, CARD_W, CARD_H, 6).fill(grad);
 
-  // ── Geometric Border ──
-  drawGeometricBorder(doc, x + MARGIN - 10, y + MARGIN - 10, w - 2 * (MARGIN - 10), h - 2 * (MARGIN - 10));
+  // ── 2. Category accent strip (top, 4pt) ──
+  doc.save();
+  doc.roundedRect(x, y, CARD_W, 6, 6).clip();
+  doc.rect(x, y, CARD_W, 4).fill(cat.accent);
+  doc.restore();
 
-  // ── Decorative Elements ──
-  drawCrescentMoon(doc, x + 70, y + 60, 25);
-  drawStar(doc, x + w - 80, y + 60, 12);
-  drawStar(doc, x + w - 110, y + 75, 8);
-  drawStar(doc, x + 110, y + 50, 8);
-  drawLantern(doc, x + w - 60, y + h - 100, 15);
-  drawLantern(doc, x + 50, y + h - 100, 15);
+  // ── 3. Double gold border ──
+  doc.roundedRect(x + 1, y + 1, CARD_W - 2, CARD_H - 2, 6).lineWidth(1.2).strokeColor(C.gold).stroke();
+  doc.roundedRect(x + 5, y + 5, CARD_W - 10, CARD_H - 10, 4).lineWidth(0.4).strokeOpacity(0.3).strokeColor(C.gold).stroke();
+  doc.strokeOpacity(1);
 
-  // ── Corner Stars ──
-  drawStar(doc, x + MARGIN + 5, y + MARGIN + 5, 6);
-  drawStar(doc, x + w - MARGIN - 5, y + MARGIN + 5, 6);
-  drawStar(doc, x + MARGIN + 5, y + h - MARGIN - 5, 6);
-  drawStar(doc, x + w - MARGIN - 5, y + h - MARGIN - 5, 6);
+  // ── 4. Corner ornaments ──
+  drawCornerOrnaments(doc, x + 8, y + 8, CARD_W - 16, CARD_H - 16);
 
-  // ── Header: Event Title ──
-  const titleY = y + MARGIN + 30;
-  doc.font('Helvetica-Bold').fontSize(22).fillColor(GOLD);
-  doc.text(event ? event.name : 'School Iftar', x + MARGIN, titleY, {
-    width: w - 2 * MARGIN,
-    align: 'center',
-  });
+  // ── 5. Layout: Left (QR section) | Right (info section) ──
+  const dividerX = x + 138; // left panel width
+  const qrSection = { x: x + pad, y: y + 14, w: 138 - pad * 2 };
+  const infoSection = { x: dividerX + 14, y: y + 14, w: CARD_W - 138 - 14 - pad };
 
-  // ── Subtitle: Invitation ──
-  doc.font('Helvetica').fontSize(11).fillColor(CREAM);
-  doc.text('You are cordially invited', x + MARGIN, titleY + 32, {
-    width: w - 2 * MARGIN,
-    align: 'center',
-  });
+  // Vertical divider line
+  doc.save();
+  doc.strokeColor(C.gold).lineWidth(0.5).opacity(0.25);
+  doc.moveTo(dividerX, y + 20).lineTo(dividerX, y + CARD_H - 20).stroke();
+  doc.opacity(1);
+  doc.restore();
 
-  // ── Gold divider ──
-  const divY = titleY + 55;
-  doc.strokeColor(GOLD).lineWidth(1);
-  doc.moveTo(x + w / 2 - 80, divY).lineTo(x + w / 2 + 80, divY).stroke();
-  drawDiamond(doc, x + w / 2, divY, 4);
-
-  // ── Guest Name ──
-  const nameY = divY + 18;
-  doc.font('Helvetica-Bold').fontSize(26).fillColor(WHITE);
-  doc.text(guest.name, x + MARGIN, nameY, {
-    width: w - 2 * MARGIN,
-    align: 'center',
-  });
-
-  // ── Category Badge ──
-  const catY = nameY + 36;
-  const category = (guest.category || 'guest').toUpperCase();
-  const catColor = getCategoryColor(guest.category);
-  doc.roundedRect(x + w / 2 - 40, catY, 80, 20, 10).fill(catColor);
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(WHITE);
-  doc.text(category, x + w / 2 - 40, catY + 5, { width: 80, align: 'center' });
-
-  // ── Event Details Row ──
-  const detailY = catY + 35;
-  doc.font('Helvetica').fontSize(10).fillColor(GOLD_LIGHT);
-
-  const dateText = event ? event.event_date : '';
-  const timeText = event ? event.event_time : '';
-  const venueText = event ? event.venue : '';
-
-  doc.text(`Date: ${dateText}`, x + MARGIN + 20, detailY, { width: 160 });
-  doc.text(`Time: ${timeText}`, x + MARGIN + 180, detailY, { width: 160 });
-  doc.text(`Venue: ${venueText}`, x + MARGIN + 340, detailY, { width: 180 });
-
-  if (guest.table_number) {
-    doc.font('Helvetica-Bold').fontSize(11).fillColor(GOLD);
-    doc.text(`Table: ${guest.table_number}`, x + MARGIN + 20, detailY + 18, { width: 200 });
-  }
-
-  // ── QR Code ──
-  const qrSize = 110;
-  const qrX = x + w / 2 - qrSize / 2;
-  const qrY = detailY + 40;
+  // ────────────────────────────
+  // LEFT PANEL: QR + scan text
+  // ────────────────────────────
+  const qrSize = 90;
+  const qrX = qrSection.x + (qrSection.w - qrSize) / 2;
+  const qrY = qrSection.y + 20;
 
   const url = `${baseUrl}/checkin/${guest.token}`;
   const qrDataUrl = await QRCode.toDataURL(url, {
-    width: qrSize * 3,
-    margin: 1,
+    width: qrSize * 4,
+    margin: 0,
     errorCorrectionLevel: 'M',
-    color: { dark: '#000000', light: '#FFFFFF' },
+    color: { dark: '#0B1A2E', light: '#FFFFFF' },
   });
   const qrBuffer = Buffer.from(qrDataUrl.split(',')[1], 'base64');
 
-  // White background for QR
-  doc.roundedRect(qrX - 6, qrY - 6, qrSize + 12, qrSize + 12, 6).fill(WHITE);
+  // QR white background with subtle gold border
+  doc.roundedRect(qrX - 5, qrY - 5, qrSize + 10, qrSize + 10, 4).fill(C.white);
+  doc.roundedRect(qrX - 5, qrY - 5, qrSize + 10, qrSize + 10, 4).lineWidth(0.5).strokeColor(C.goldDark).stroke();
   doc.image(qrBuffer, qrX, qrY, { width: qrSize, height: qrSize });
 
-  // ── Footer text under QR ──
-  doc.font('Helvetica').fontSize(8).fillColor(CREAM);
-  doc.text('Scan QR code at the door to check in', x + MARGIN, qrY + qrSize + 14, {
-    width: w - 2 * MARGIN,
+  // "Scan to check in" text
+  doc.font('Helvetica').fontSize(6.5).fillColor(C.textMuted);
+  doc.text('SCAN TO CHECK IN', qrSection.x, qrY + qrSize + 14, {
+    width: qrSection.w,
     align: 'center',
   });
+
+  // Small crescent + star icon centered below
+  const iconCx = qrSection.x + qrSection.w / 2;
+  const iconCy = qrY + qrSize + 32;
+  drawCrescentMoon(doc, iconCx - 8, iconCy, 7);
+  drawStar(doc, iconCx + 8, iconCy - 2, 4);
+
+  // Table number at bottom of left panel (if exists)
+  if (guest.table_number) {
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(C.gold);
+    doc.text(`TABLE ${guest.table_number}`, qrSection.x, y + CARD_H - 32, {
+      width: qrSection.w,
+      align: 'center',
+    });
+  }
+
+  // ─────────────────────────────
+  // RIGHT PANEL: event + guest info
+  // ─────────────────────────────
+  const ri = infoSection;
+  let curY = ri.y + 8;
+
+  // Event name
+  doc.font('Helvetica-Bold').fontSize(14).fillColor(C.gold);
+  doc.text(event ? event.name : 'Iftar Dinner', ri.x, curY, { width: ri.w });
+  curY += 20;
+
+  // "You are cordially invited" subtitle
+  doc.font('Helvetica').fontSize(7.5).fillColor(C.textMuted);
+  doc.text('You are cordially invited to join us for iftar', ri.x, curY, { width: ri.w });
+  curY += 16;
+
+  // Gold divider with diamond
+  doc.strokeColor(C.gold).lineWidth(0.6);
+  doc.moveTo(ri.x, curY).lineTo(ri.x + ri.w, curY).stroke();
+  drawDiamond(doc, ri.x + ri.w / 2, curY, 3);
+  curY += 12;
+
+  // Guest name (prominent)
+  doc.font('Helvetica-Bold').fontSize(17).fillColor(C.white);
+  doc.text(guest.name, ri.x, curY, { width: ri.w, ellipsis: true });
+  curY += 24;
+
+  // Category badge
+  const badgeW = doc.widthOfString(cat.label, { font: 'Helvetica-Bold', size: 7 }) + 16;
+  doc.roundedRect(ri.x, curY, badgeW, 16, 8).fill(cat.bg);
+  doc.roundedRect(ri.x, curY, badgeW, 16, 8).lineWidth(0.5).strokeColor(cat.accent).stroke();
+  doc.font('Helvetica-Bold').fontSize(7).fillColor(cat.accent);
+  doc.text(cat.label, ri.x, curY + 4, { width: badgeW, align: 'center' });
+  curY += 28;
+
+  // Event details grid (icons replaced with labels)
+  const detailFontSize = 7.5;
+  const detailGap = 12;
+
+  doc.font('Helvetica-Bold').fontSize(6).fillColor(C.textMuted);
+  doc.text('DATE', ri.x, curY, { width: 80 });
+  doc.text('TIME', ri.x + 95, curY, { width: 80 });
+  curY += 9;
+
+  doc.font('Helvetica').fontSize(detailFontSize).fillColor(C.cream);
+  doc.text(event ? event.event_date : '', ri.x, curY, { width: 90 });
+  doc.text(event ? event.event_time : '', ri.x + 95, curY, { width: 80 });
+  curY += detailGap + 2;
+
+  doc.font('Helvetica-Bold').fontSize(6).fillColor(C.textMuted);
+  doc.text('VENUE', ri.x, curY, { width: 200 });
+  curY += 9;
+
+  doc.font('Helvetica').fontSize(detailFontSize).fillColor(C.cream);
+  doc.text(event ? event.venue : '', ri.x, curY, { width: ri.w });
+
+  // ── Bottom-right: small decorative stars ──
+  drawStar(doc, x + CARD_W - 22, y + CARD_H - 22, 5);
+  drawStar(doc, x + CARD_W - 36, y + CARD_H - 16, 3);
 
   doc.restore();
 }
 
-// ── Decorative Drawing Functions ──
+// ══════════════════════════════════════════════════════════
+// Decorative Drawing Functions
+// ══════════════════════════════════════════════════════════
 
-function drawGeometricBorder(doc, x, y, w, h) {
+function drawCornerOrnaments(doc, x, y, w, h) {
   doc.save();
-  doc.strokeColor(GOLD).lineWidth(1.5);
-  doc.roundedRect(x, y, w, h, 8).stroke();
+  const s = 10;
+  doc.strokeColor(C.gold).lineWidth(0.8).opacity(0.5);
 
-  // Inner border
-  doc.strokeColor(GOLD).lineWidth(0.5).opacity(0.4);
-  doc.roundedRect(x + 5, y + 5, w - 10, h - 10, 6).stroke();
-  doc.opacity(1);
-
-  // Corner decorations
-  const cornerSize = 15;
-  [[x, y], [x + w, y], [x, y + h], [x + w, y + h]].forEach(([cx, cy]) => {
-    doc.strokeColor(GOLD).lineWidth(1).opacity(0.6);
-    // L-shaped corner accents
-    const dx = cx === x ? 1 : -1;
-    const dy = cy === y ? 1 : -1;
-    doc.moveTo(cx, cy + dy * cornerSize).lineTo(cx, cy).lineTo(cx + dx * cornerSize, cy).stroke();
-  });
+  // Top-left
+  doc.moveTo(x, y + s).lineTo(x, y).lineTo(x + s, y).stroke();
+  // Top-right
+  doc.moveTo(x + w - s, y).lineTo(x + w, y).lineTo(x + w, y + s).stroke();
+  // Bottom-left
+  doc.moveTo(x, y + h - s).lineTo(x, y + h).lineTo(x + s, y + h).stroke();
+  // Bottom-right
+  doc.moveTo(x + w - s, y + h).lineTo(x + w, y + h).lineTo(x + w, y + h - s).stroke();
 
   doc.opacity(1);
   doc.restore();
@@ -186,84 +248,60 @@ function drawGeometricBorder(doc, x, y, w, h) {
 
 function drawCrescentMoon(doc, cx, cy, r) {
   doc.save();
-  doc.fillColor(GOLD).opacity(0.7);
-
-  // Outer circle
+  doc.fillColor(C.gold).opacity(0.6);
   doc.circle(cx, cy, r).fill();
-  // Inner cutout (slightly offset)
-  doc.fillColor(NAVY);
-  doc.circle(cx + r * 0.35, cy - r * 0.15, r * 0.8).fill();
-
+  doc.fillColor(C.navy);
+  doc.circle(cx + r * 0.35, cy - r * 0.15, r * 0.78).fill();
   doc.opacity(1);
   doc.restore();
 }
 
 function drawStar(doc, cx, cy, r) {
   doc.save();
-  doc.fillColor(GOLD).opacity(0.6);
+  doc.fillColor(C.gold).opacity(0.5);
 
-  const points = [];
+  const pts = [];
   for (let i = 0; i < 10; i++) {
-    const angle = (Math.PI / 2) + (i * Math.PI / 5);
-    const radius = i % 2 === 0 ? r : r * 0.4;
-    points.push([
-      cx + Math.cos(angle) * radius,
-      cy - Math.sin(angle) * radius,
-    ]);
+    const angle = -Math.PI / 2 + (i * Math.PI / 5);
+    const rad = i % 2 === 0 ? r : r * 0.4;
+    pts.push([cx + Math.cos(angle) * rad, cy + Math.sin(angle) * rad]);
   }
 
-  doc.moveTo(points[0][0], points[0][1]);
-  for (let i = 1; i < points.length; i++) {
-    doc.lineTo(points[i][0], points[i][1]);
-  }
+  doc.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) doc.lineTo(pts[i][0], pts[i][1]);
   doc.closePath().fill();
 
   doc.opacity(1);
   doc.restore();
 }
 
-function drawDiamond(doc, cx, cy, size) {
+function drawDiamond(doc, cx, cy, s) {
   doc.save();
-  doc.fillColor(GOLD);
-  doc.moveTo(cx, cy - size)
-    .lineTo(cx + size, cy)
-    .lineTo(cx, cy + size)
-    .lineTo(cx - size, cy)
-    .closePath().fill();
+  doc.fillColor(C.gold);
+  doc.moveTo(cx, cy - s).lineTo(cx + s, cy).lineTo(cx, cy + s).lineTo(cx - s, cy).closePath().fill();
   doc.restore();
 }
 
-function drawLantern(doc, cx, cy, size) {
+function drawCutMarks(doc, x, y, w, h) {
   doc.save();
-  doc.fillColor(GOLD).opacity(0.4);
+  const len = 8;
+  const gap = 3;
+  doc.strokeColor('#BBBBBB').lineWidth(0.3);
 
-  // Top cap
-  doc.ellipse(cx, cy - size, size * 0.4, size * 0.15).fill();
+  // Top-left
+  doc.moveTo(x - gap - len, y).lineTo(x - gap, y).stroke();
+  doc.moveTo(x, y - gap - len).lineTo(x, y - gap).stroke();
+  // Top-right
+  doc.moveTo(x + w + gap, y).lineTo(x + w + gap + len, y).stroke();
+  doc.moveTo(x + w, y - gap - len).lineTo(x + w, y - gap).stroke();
+  // Bottom-left
+  doc.moveTo(x - gap - len, y + h).lineTo(x - gap, y + h).stroke();
+  doc.moveTo(x, y + h + gap).lineTo(x, y + h + gap + len).stroke();
+  // Bottom-right
+  doc.moveTo(x + w + gap, y + h).lineTo(x + w + gap + len, y + h).stroke();
+  doc.moveTo(x + w, y + h + gap).lineTo(x + w, y + h + gap + len).stroke();
 
-  // Body
-  doc.moveTo(cx - size * 0.35, cy - size * 0.8)
-    .bezierCurveTo(cx - size * 0.6, cy, cx - size * 0.6, cy + size * 0.5, cx - size * 0.2, cy + size)
-    .lineTo(cx + size * 0.2, cy + size)
-    .bezierCurveTo(cx + size * 0.6, cy + size * 0.5, cx + size * 0.6, cy, cx + size * 0.35, cy - size * 0.8)
-    .closePath().fill();
-
-  // Hanging line
-  doc.strokeColor(GOLD).lineWidth(0.5).opacity(0.5);
-  doc.moveTo(cx, cy - size * 1.3).lineTo(cx, cy - size).stroke();
-
-  doc.opacity(1);
   doc.restore();
-}
-
-function getCategoryColor(category) {
-  const colors = {
-    student: '#2980b9',
-    parent: '#27ae60',
-    teacher: '#8e44ad',
-    vip: '#d4af37',
-    guest: '#7f8c8d',
-  };
-  return colors[category] || colors.guest;
 }
 
 module.exports = { generatePDF, generateSingleTicket };

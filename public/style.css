@@ -309,12 +309,12 @@ select {
 .badge-pending { background: rgba(243,156,18,0.2); color: #f39c12; }
 .badge-inactive { background: rgba(192,57,43,0.2); color: #e74c3c; }
 
-/* Category badges */
-.cat-student { background: rgba(52,152,219,0.2); color: #3498db; }
-.cat-parent { background: rgba(46,204,113,0.2); color: #2ecc71; }
-.cat-teacher { background: rgba(155,89,182,0.2); color: #9b59b6; }
-.cat-vip { background: rgba(243,156,18,0.2); color: #f39c12; }
-.cat-guest { background: rgba(149,165,166,0.2); color: #95a5a6; }
+/* Category badges — matched to ticket accent colors */
+.cat-student { background: rgba(74,144,217,0.15); color: #4A90D9; }
+.cat-parent { background: rgba(91,175,110,0.15); color: #5BAF6E; }
+.cat-teacher { background: rgba(155,109,198,0.15); color: #9B6DC6; }
+.cat-vip { background: rgba(201,168,76,0.2); color: #C9A84C; border: 1px solid rgba(201,168,76,0.3); }
+.cat-guest { background: rgba(140,154,168,0.15); color: #8C9AA8; }
 
 /* Role badges */
 .role-badge {
