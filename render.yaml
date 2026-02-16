@@ -1,0 +1,24 @@
+databases:
+  - name: iftar-db
+    plan: free
+    databaseName: iftar_checkin
+    user: iftar_user
+
+services:
+  - type: web
+    plan: free
+    name: iftar-checkin
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: iftar-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: BASE_URL
+        sync: false
+      - key: NODE_ENV
+        value: production
