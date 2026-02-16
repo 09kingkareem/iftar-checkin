@@ -44,43 +44,55 @@ router.post('/admin/import', requireAdmin, upload.single('csv'), async (req, res
     const lines = content.split(/\r?\n/).filter(l => l.trim());
     if (lines.length === 0) return res.redirect('/admin');
 
-    // Parse header
-    const header = lines[0].toLowerCase().split(',').map(h => h.trim());
-    const hasHeader = header.includes('name');
+    const VALID_CATEGORIES = ['student', 'parent', 'teacher', 'vip', 'guest'];
 
-    if (hasHeader && lines.length > 1) {
-      const nameIdx = header.indexOf('name');
-      const catIdx = header.indexOf('category');
-      const dietIdx = header.indexOf('dietary') !== -1 ? header.indexOf('dietary') : header.indexOf('dietary_restrictions');
-      const tableIdx = header.indexOf('table') !== -1 ? header.indexOf('table') : header.indexOf('table_number');
-      const phoneIdx = header.indexOf('phone');
-      const emailIdx = header.indexOf('email');
+    // Detect if first row is a header (contains "name" in any column)
+    const firstRow = lines[0].toLowerCase().split(',').map(h => h.trim());
+    const hasHeader = firstRow.includes('name');
 
-      const guestRows = [];
-      for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(',').map(c => c.trim());
-        if (!cols[nameIdx]) continue;
-        guestRows.push({
-          name: cols[nameIdx],
-          category: catIdx >= 0 ? cols[catIdx] : 'guest',
-          dietary: dietIdx >= 0 ? cols[dietIdx] : null,
-          table_number: tableIdx >= 0 ? cols[tableIdx] : null,
-          phone: phoneIdx >= 0 ? cols[phoneIdx] : null,
-          email: emailIdx >= 0 ? cols[emailIdx] : null,
-        });
-      }
+    let dataLines, colMap;
+
+    if (hasHeader) {
+      // Header-based: map columns by name
+      dataLines = lines.slice(1);
+      colMap = {
+        name:    firstRow.indexOf('name'),
+        cat:     Math.max(firstRow.indexOf('category'), firstRow.indexOf('type')),
+        dietary: Math.max(firstRow.indexOf('dietary'), firstRow.indexOf('dietary_restrictions')),
+        table:   Math.max(firstRow.indexOf('table'), firstRow.indexOf('table_number')),
+        phone:   firstRow.indexOf('phone'),
+        email:   firstRow.indexOf('email'),
+      };
+    } else {
+      // No header: assume positional — name, category, dietary, table, phone, email
+      dataLines = lines;
+      colMap = { name: 0, cat: 1, dietary: 2, table: 3, phone: 4, email: 5 };
+    }
+
+    const guestRows = [];
+    for (const line of dataLines) {
+      const cols = line.split(',').map(c => c.trim());
+      const name = colMap.name >= 0 ? cols[colMap.name] : null;
+      if (!name) continue;
+
+      const rawCat = (colMap.cat >= 0 ? cols[colMap.cat] : '').toLowerCase();
+      const category = VALID_CATEGORIES.includes(rawCat) ? rawCat : 'guest';
+
+      guestRows.push({
+        name,
+        category,
+        dietary: colMap.dietary >= 0 ? cols[colMap.dietary] || null : null,
+        table_number: colMap.table >= 0 ? cols[colMap.table] || null : null,
+        phone: colMap.phone >= 0 ? cols[colMap.phone] || null : null,
+        email: colMap.email >= 0 ? cols[colMap.email] || null : null,
+      });
+    }
+
+    if (guestRows.length > 0) {
       await db.addGuestsBulk(guestRows, event.id);
       await db.logActivity(event.id, 'import', {
         userId: user.id,
         details: `Imported ${guestRows.length} guests from CSV by ${user.display_name}`,
-      });
-    } else {
-      // Simple name list
-      const names = hasHeader ? lines.slice(1) : lines;
-      await db.addGuests(names.map(l => l.split(',')[0]), event.id);
-      await db.logActivity(event.id, 'import', {
-        userId: user.id,
-        details: `Imported ${names.length} guests by ${user.display_name}`,
       });
     }
   } else if (req.body.names) {

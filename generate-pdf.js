@@ -2,38 +2,40 @@ const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
 
 // ══════════════════════════════════════════════════════════
-// Card dimensions: 5.5" x 3.5" landscape (396 x 252 pts)
-// Layout: 1 column, 3 rows per A4 page = 3 cards/page
+// Event Badge: Portrait, 2 per A4 page
+// Badge: 340pt x 400pt (4.72" x 5.56")
 // ══════════════════════════════════════════════════════════
 
-const CARD_W = 396;   // 5.5 inches
-const CARD_H = 252;   // 3.5 inches
-const PAGE_W = 595.28; // A4
+const BADGE_W = 340;
+const BADGE_H = 400;
+const PAGE_W = 595.28;
 const PAGE_H = 841.89;
-const CARDS_PER_PAGE = 3;
-const CARD_X = (PAGE_W - CARD_W) / 2; // centered horizontally
-const PAGE_PAD_Y = (PAGE_H - CARD_H * CARDS_PER_PAGE) / (CARDS_PER_PAGE + 1); // even vertical spacing
+const BADGES_PER_PAGE = 2;
+const BADGE_X = (PAGE_W - BADGE_W) / 2;
+const GAP_Y = (PAGE_H - BADGE_H * BADGES_PER_PAGE) / (BADGES_PER_PAGE + 1);
 
 // ── Color Palette ──
 const C = {
-  navy:      '#0B1A2E',
-  navyLight: '#122240',
-  gold:      '#C9A84C',
-  goldBright:'#E8C547',
-  goldDark:  '#A68A3E',
-  white:     '#FFFFFF',
-  cream:     '#F5ECD7',
-  textLight: '#D4CFC0',
-  textMuted: '#8A8575',
+  navy:       '#0B1A2E',
+  navyMid:    '#10213B',
+  navyLight:  '#162D4A',
+  gold:       '#C9A84C',
+  goldBright: '#E8C547',
+  goldDark:   '#A68A3E',
+  goldFaint:  'rgba(201,168,76,0.08)',
+  white:      '#FFFFFF',
+  cream:      '#F5ECD7',
+  textLight:  '#D4CFC0',
+  textMuted:  '#8A8575',
 };
 
-// ── Category Theme: accent color + label ──
+// ── Category Themes ──
 const CATEGORIES = {
-  vip:     { accent: '#C9A84C', bg: '#3D3418', label: 'VIP GUEST' },
-  student: { accent: '#4A90D9', bg: '#152A4A', label: 'STUDENT' },
-  parent:  { accent: '#5BAF6E', bg: '#1A3A22', label: 'PARENT' },
-  teacher: { accent: '#9B6DC6', bg: '#2A1D3E', label: 'TEACHER' },
-  guest:   { accent: '#8C9AA8', bg: '#1E2A36', label: 'GUEST' },
+  vip:     { accent: '#C9A84C', bg: '#3D3418', label: 'VIP GUEST',  strip: '#C9A84C' },
+  student: { accent: '#4A90D9', bg: '#152A4A', label: 'STUDENT',    strip: '#4A90D9' },
+  parent:  { accent: '#5BAF6E', bg: '#1A3A22', label: 'PARENT',     strip: '#5BAF6E' },
+  teacher: { accent: '#9B6DC6', bg: '#2A1D3E', label: 'TEACHER',    strip: '#9B6DC6' },
+  guest:   { accent: '#8C9AA8', bg: '#1E2A36', label: 'GUEST',      strip: '#8C9AA8' },
 };
 
 function getCat(category) {
@@ -41,89 +43,161 @@ function getCat(category) {
 }
 
 // ══════════════════════════════════════════════════════════
-// Multi-guest PDF: 3 cards per A4 page
+// Multi-badge PDF: 2 per A4 page
 // ══════════════════════════════════════════════════════════
 async function generatePDF(guests, baseUrl, outputStream, event) {
   const doc = new PDFDocument({ size: 'A4', margin: 0 });
   doc.pipe(outputStream);
 
   for (let i = 0; i < guests.length; i++) {
-    if (i > 0 && i % CARDS_PER_PAGE === 0) doc.addPage();
+    if (i > 0 && i % BADGES_PER_PAGE === 0) doc.addPage();
 
-    const slot = i % CARDS_PER_PAGE;
-    const cardY = PAGE_PAD_Y + slot * (CARD_H + PAGE_PAD_Y);
+    const slot = i % BADGES_PER_PAGE;
+    const badgeY = GAP_Y + slot * (BADGE_H + GAP_Y);
 
-    await drawCard(doc, guests[i], baseUrl, event, CARD_X, cardY);
-
-    // Cut guides (light gray corner marks)
-    drawCutMarks(doc, CARD_X, cardY, CARD_W, CARD_H);
+    await drawBadge(doc, guests[i], baseUrl, event, BADGE_X, badgeY);
+    drawCutMarks(doc, BADGE_X, badgeY, BADGE_W, BADGE_H);
   }
 
   doc.end();
 }
 
 // ══════════════════════════════════════════════════════════
-// Single ticket: one card centered on A4
+// Single badge centered on A4
 // ══════════════════════════════════════════════════════════
 async function generateSingleTicket(guest, baseUrl, outputStream, event) {
   const doc = new PDFDocument({ size: 'A4', margin: 0 });
   doc.pipe(outputStream);
 
-  const cardY = (PAGE_H - CARD_H) / 2;
-  await drawCard(doc, guest, baseUrl, event, CARD_X, cardY);
-  drawCutMarks(doc, CARD_X, cardY, CARD_W, CARD_H);
+  const badgeY = (PAGE_H - BADGE_H) / 2;
+  await drawBadge(doc, guest, baseUrl, event, BADGE_X, badgeY);
+  drawCutMarks(doc, BADGE_X, badgeY, BADGE_W, BADGE_H);
 
   doc.end();
 }
 
 // ══════════════════════════════════════════════════════════
-// Core card renderer
+// Badge Renderer — Portrait Event Badge
 // ══════════════════════════════════════════════════════════
-async function drawCard(doc, guest, baseUrl, event, x, y) {
+async function drawBadge(doc, guest, baseUrl, event, x, y) {
   const cat = getCat(guest.category);
-  const pad = 16;
+  const pad = 24;
+  const innerX = x + pad;
+  const innerW = BADGE_W - pad * 2;
+  const centerX = x + BADGE_W / 2;
 
-  // ── 1. Background ──
+  // ── Background ──
   doc.save();
-  doc.roundedRect(x, y, CARD_W, CARD_H, 6).fill(C.navy);
+  doc.roundedRect(x, y, BADGE_W, BADGE_H, 8).fill(C.navy);
 
-  // Subtle gradient overlay
-  const grad = doc.linearGradient(x, y, x + CARD_W, y + CARD_H);
-  grad.stop(0, C.navy).stop(1, C.navyLight);
-  doc.roundedRect(x, y, CARD_W, CARD_H, 6).fill(grad);
+  // Subtle radial-like gradient (lighter in center)
+  const grad = doc.linearGradient(x, y, x, y + BADGE_H);
+  grad.stop(0, C.navyMid).stop(0.4, C.navyLight).stop(1, C.navy);
+  doc.roundedRect(x, y, BADGE_W, BADGE_H, 8).fill(grad);
 
-  // ── 2. Category accent strip (top, 4pt) ──
+  // ── Category accent strip at top (6pt with rounded top) ──
   doc.save();
-  doc.roundedRect(x, y, CARD_W, 6, 6).clip();
-  doc.rect(x, y, CARD_W, 4).fill(cat.accent);
+  doc.roundedRect(x, y, BADGE_W, 10, 8).clip();
+  doc.rect(x, y, BADGE_W, 6).fill(cat.strip);
   doc.restore();
 
-  // ── 3. Double gold border ──
-  doc.roundedRect(x + 1, y + 1, CARD_W - 2, CARD_H - 2, 6).lineWidth(1.2).strokeColor(C.gold).stroke();
-  doc.roundedRect(x + 5, y + 5, CARD_W - 10, CARD_H - 10, 4).lineWidth(0.4).strokeOpacity(0.3).strokeColor(C.gold).stroke();
+  // ── Outer border (gold) ──
+  doc.roundedRect(x + 1.5, y + 1.5, BADGE_W - 3, BADGE_H - 3, 7)
+    .lineWidth(1.5).strokeColor(C.gold).stroke();
+
+  // ── Inner border (faint gold) ──
+  doc.roundedRect(x + 6, y + 6, BADGE_W - 12, BADGE_H - 12, 5)
+    .lineWidth(0.4).strokeOpacity(0.2).strokeColor(C.gold).stroke();
   doc.strokeOpacity(1);
 
-  // ── 4. Corner ornaments ──
-  drawCornerOrnaments(doc, x + 8, y + 8, CARD_W - 16, CARD_H - 16);
+  // ── Corner ornaments ──
+  drawCornerOrnaments(doc, x + 10, y + 10, BADGE_W - 20, BADGE_H - 20);
 
-  // ── 5. Layout: Left (QR section) | Right (info section) ──
-  const dividerX = x + 138; // left panel width
-  const qrSection = { x: x + pad, y: y + 14, w: 138 - pad * 2 };
-  const infoSection = { x: dividerX + 14, y: y + 14, w: CARD_W - 138 - 14 - pad };
+  // ════════════════════════════════════
+  // TOP SECTION — Event branding
+  // ════════════════════════════════════
+  let curY = y + 22;
 
-  // Vertical divider line
-  doc.save();
-  doc.strokeColor(C.gold).lineWidth(0.5).opacity(0.25);
-  doc.moveTo(dividerX, y + 20).lineTo(dividerX, y + CARD_H - 20).stroke();
-  doc.opacity(1);
-  doc.restore();
+  // Crescent + star flanking event name
+  drawCrescentMoon(doc, innerX + 6, curY + 8, 8);
+  drawStar(doc, x + BADGE_W - pad - 6, curY + 6, 5);
 
-  // ────────────────────────────
-  // LEFT PANEL: QR + scan text
-  // ────────────────────────────
-  const qrSize = 90;
-  const qrX = qrSection.x + (qrSection.w - qrSize) / 2;
-  const qrY = qrSection.y + 20;
+  // Event name
+  doc.font('Helvetica-Bold').fontSize(16).fillColor(C.gold);
+  doc.text(event ? event.name : 'Iftar Dinner', innerX, curY, {
+    width: innerW,
+    align: 'center',
+  });
+  curY += 24;
+
+  // Subtitle
+  doc.font('Helvetica').fontSize(7.5).fillColor(C.textMuted);
+  doc.text('You are cordially invited', innerX, curY, {
+    width: innerW,
+    align: 'center',
+  });
+  curY += 16;
+
+  // ── Gold divider ──
+  const divW = 120;
+  doc.strokeColor(C.gold).lineWidth(0.7);
+  doc.moveTo(centerX - divW / 2, curY).lineTo(centerX + divW / 2, curY).stroke();
+  drawDiamond(doc, centerX, curY, 3);
+  curY += 18;
+
+  // ════════════════════════════════════
+  // CENTER SECTION — Guest identity
+  // ════════════════════════════════════
+
+  // Guest name (large, prominent)
+  doc.font('Helvetica-Bold').fontSize(22).fillColor(C.white);
+  doc.text(guest.name, innerX, curY, {
+    width: innerW,
+    align: 'center',
+    ellipsis: true,
+    height: 32,
+  });
+  curY += 34;
+
+  // Category badge (pill shape)
+  const badgeLabel = cat.label;
+  doc.font('Helvetica-Bold').fontSize(8);
+  const badgeTextW = doc.widthOfString(badgeLabel) + 20;
+  const badgeH = 18;
+  const badgeX = centerX - badgeTextW / 2;
+
+  doc.roundedRect(badgeX, curY, badgeTextW, badgeH, badgeH / 2).fill(cat.bg);
+  doc.roundedRect(badgeX, curY, badgeTextW, badgeH, badgeH / 2)
+    .lineWidth(0.8).strokeColor(cat.accent).stroke();
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(cat.accent);
+  doc.text(badgeLabel, badgeX, curY + 4.5, { width: badgeTextW, align: 'center' });
+  curY += badgeH + 14;
+
+  // Table number (if exists)
+  if (guest.table_number) {
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(C.goldBright);
+    doc.text(`TABLE ${guest.table_number}`, innerX, curY, {
+      width: innerW,
+      align: 'center',
+    });
+    curY += 18;
+  }
+
+  // ── Thin divider ──
+  curY += 4;
+  doc.strokeColor(C.gold).lineWidth(0.3).strokeOpacity(0.3);
+  doc.moveTo(innerX + 30, curY).lineTo(x + BADGE_W - pad - 30, curY).stroke();
+  doc.strokeOpacity(1);
+  curY += 12;
+
+  // ════════════════════════════════════
+  // BOTTOM SECTION — QR + event details
+  // ════════════════════════════════════
+
+  // QR code (centered)
+  const qrSize = 80;
+  const qrX = centerX - qrSize / 2;
+  const qrY = curY;
 
   const url = `${baseUrl}/checkin/${guest.token}`;
   const qrDataUrl = await QRCode.toDataURL(url, {
@@ -134,92 +208,38 @@ async function drawCard(doc, guest, baseUrl, event, x, y) {
   });
   const qrBuffer = Buffer.from(qrDataUrl.split(',')[1], 'base64');
 
-  // QR white background with subtle gold border
-  doc.roundedRect(qrX - 5, qrY - 5, qrSize + 10, qrSize + 10, 4).fill(C.white);
-  doc.roundedRect(qrX - 5, qrY - 5, qrSize + 10, qrSize + 10, 4).lineWidth(0.5).strokeColor(C.goldDark).stroke();
+  // White QR background
+  doc.roundedRect(qrX - 4, qrY - 4, qrSize + 8, qrSize + 8, 4).fill(C.white);
+  doc.roundedRect(qrX - 4, qrY - 4, qrSize + 8, qrSize + 8, 4)
+    .lineWidth(0.4).strokeColor(C.goldDark).stroke();
   doc.image(qrBuffer, qrX, qrY, { width: qrSize, height: qrSize });
 
-  // "Scan to check in" text
-  doc.font('Helvetica').fontSize(6.5).fillColor(C.textMuted);
-  doc.text('SCAN TO CHECK IN', qrSection.x, qrY + qrSize + 14, {
-    width: qrSection.w,
+  curY = qrY + qrSize + 10;
+
+  // "Scan to check in"
+  doc.font('Helvetica').fontSize(6).fillColor(C.textMuted);
+  doc.text('SCAN TO CHECK IN', innerX, curY, { width: innerW, align: 'center' });
+  curY += 14;
+
+  // Event details row
+  const detailY = y + BADGE_H - 38;
+  doc.font('Helvetica').fontSize(7).fillColor(C.textLight);
+
+  const dateStr = event ? event.event_date : '';
+  const timeStr = event ? event.event_time : '';
+  const venueStr = event ? event.venue : '';
+  const detailLine = [dateStr, timeStr, venueStr].filter(Boolean).join('  |  ');
+
+  doc.text(detailLine, innerX, detailY, {
+    width: innerW,
     align: 'center',
   });
 
-  // Small crescent + star icon centered below
-  const iconCx = qrSection.x + qrSection.w / 2;
-  const iconCy = qrY + qrSize + 32;
-  drawCrescentMoon(doc, iconCx - 8, iconCy, 7);
-  drawStar(doc, iconCx + 8, iconCy - 2, 4);
-
-  // Table number at bottom of left panel (if exists)
-  if (guest.table_number) {
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(C.gold);
-    doc.text(`TABLE ${guest.table_number}`, qrSection.x, y + CARD_H - 32, {
-      width: qrSection.w,
-      align: 'center',
-    });
-  }
-
-  // ─────────────────────────────
-  // RIGHT PANEL: event + guest info
-  // ─────────────────────────────
-  const ri = infoSection;
-  let curY = ri.y + 8;
-
-  // Event name
-  doc.font('Helvetica-Bold').fontSize(14).fillColor(C.gold);
-  doc.text(event ? event.name : 'Iftar Dinner', ri.x, curY, { width: ri.w });
-  curY += 20;
-
-  // "You are cordially invited" subtitle
-  doc.font('Helvetica').fontSize(7.5).fillColor(C.textMuted);
-  doc.text('You are cordially invited to join us for iftar', ri.x, curY, { width: ri.w });
-  curY += 16;
-
-  // Gold divider with diamond
-  doc.strokeColor(C.gold).lineWidth(0.6);
-  doc.moveTo(ri.x, curY).lineTo(ri.x + ri.w, curY).stroke();
-  drawDiamond(doc, ri.x + ri.w / 2, curY, 3);
-  curY += 12;
-
-  // Guest name (prominent)
-  doc.font('Helvetica-Bold').fontSize(17).fillColor(C.white);
-  doc.text(guest.name, ri.x, curY, { width: ri.w, ellipsis: true });
-  curY += 24;
-
-  // Category badge
-  const badgeW = doc.widthOfString(cat.label, { font: 'Helvetica-Bold', size: 7 }) + 16;
-  doc.roundedRect(ri.x, curY, badgeW, 16, 8).fill(cat.bg);
-  doc.roundedRect(ri.x, curY, badgeW, 16, 8).lineWidth(0.5).strokeColor(cat.accent).stroke();
-  doc.font('Helvetica-Bold').fontSize(7).fillColor(cat.accent);
-  doc.text(cat.label, ri.x, curY + 4, { width: badgeW, align: 'center' });
-  curY += 28;
-
-  // Event details grid (icons replaced with labels)
-  const detailFontSize = 7.5;
-  const detailGap = 12;
-
-  doc.font('Helvetica-Bold').fontSize(6).fillColor(C.textMuted);
-  doc.text('DATE', ri.x, curY, { width: 80 });
-  doc.text('TIME', ri.x + 95, curY, { width: 80 });
-  curY += 9;
-
-  doc.font('Helvetica').fontSize(detailFontSize).fillColor(C.cream);
-  doc.text(event ? event.event_date : '', ri.x, curY, { width: 90 });
-  doc.text(event ? event.event_time : '', ri.x + 95, curY, { width: 80 });
-  curY += detailGap + 2;
-
-  doc.font('Helvetica-Bold').fontSize(6).fillColor(C.textMuted);
-  doc.text('VENUE', ri.x, curY, { width: 200 });
-  curY += 9;
-
-  doc.font('Helvetica').fontSize(detailFontSize).fillColor(C.cream);
-  doc.text(event ? event.venue : '', ri.x, curY, { width: ri.w });
-
-  // ── Bottom-right: small decorative stars ──
-  drawStar(doc, x + CARD_W - 22, y + CARD_H - 22, 5);
-  drawStar(doc, x + CARD_W - 36, y + CARD_H - 16, 3);
+  // ── Decorative stars bottom corners ──
+  drawStar(doc, x + 18, y + BADGE_H - 18, 4);
+  drawStar(doc, x + BADGE_W - 18, y + BADGE_H - 18, 4);
+  drawStar(doc, x + 28, y + BADGE_H - 26, 2.5);
+  drawStar(doc, x + BADGE_W - 28, y + BADGE_H - 26, 2.5);
 
   doc.restore();
 }
@@ -230,25 +250,19 @@ async function drawCard(doc, guest, baseUrl, event, x, y) {
 
 function drawCornerOrnaments(doc, x, y, w, h) {
   doc.save();
-  const s = 10;
-  doc.strokeColor(C.gold).lineWidth(0.8).opacity(0.5);
-
-  // Top-left
+  const s = 12;
+  doc.strokeColor(C.gold).lineWidth(0.7).opacity(0.45);
   doc.moveTo(x, y + s).lineTo(x, y).lineTo(x + s, y).stroke();
-  // Top-right
   doc.moveTo(x + w - s, y).lineTo(x + w, y).lineTo(x + w, y + s).stroke();
-  // Bottom-left
   doc.moveTo(x, y + h - s).lineTo(x, y + h).lineTo(x + s, y + h).stroke();
-  // Bottom-right
   doc.moveTo(x + w - s, y + h).lineTo(x + w, y + h).lineTo(x + w, y + h - s).stroke();
-
   doc.opacity(1);
   doc.restore();
 }
 
 function drawCrescentMoon(doc, cx, cy, r) {
   doc.save();
-  doc.fillColor(C.gold).opacity(0.6);
+  doc.fillColor(C.gold).opacity(0.55);
   doc.circle(cx, cy, r).fill();
   doc.fillColor(C.navy);
   doc.circle(cx + r * 0.35, cy - r * 0.15, r * 0.78).fill();
@@ -258,19 +272,16 @@ function drawCrescentMoon(doc, cx, cy, r) {
 
 function drawStar(doc, cx, cy, r) {
   doc.save();
-  doc.fillColor(C.gold).opacity(0.5);
-
+  doc.fillColor(C.gold).opacity(0.45);
   const pts = [];
   for (let i = 0; i < 10; i++) {
     const angle = -Math.PI / 2 + (i * Math.PI / 5);
     const rad = i % 2 === 0 ? r : r * 0.4;
     pts.push([cx + Math.cos(angle) * rad, cy + Math.sin(angle) * rad]);
   }
-
   doc.moveTo(pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length; i++) doc.lineTo(pts[i][0], pts[i][1]);
   doc.closePath().fill();
-
   doc.opacity(1);
   doc.restore();
 }
@@ -284,10 +295,9 @@ function drawDiamond(doc, cx, cy, s) {
 
 function drawCutMarks(doc, x, y, w, h) {
   doc.save();
-  const len = 8;
-  const gap = 3;
-  doc.strokeColor('#BBBBBB').lineWidth(0.3);
-
+  const len = 10;
+  const gap = 4;
+  doc.strokeColor('#AAAAAA').lineWidth(0.3);
   // Top-left
   doc.moveTo(x - gap - len, y).lineTo(x - gap, y).stroke();
   doc.moveTo(x, y - gap - len).lineTo(x, y - gap).stroke();
@@ -300,7 +310,6 @@ function drawCutMarks(doc, x, y, w, h) {
   // Bottom-right
   doc.moveTo(x + w + gap, y + h).lineTo(x + w + gap + len, y + h).stroke();
   doc.moveTo(x + w, y + h + gap).lineTo(x + w, y + h + gap + len).stroke();
-
   doc.restore();
 }
 
