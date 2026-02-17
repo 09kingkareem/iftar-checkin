@@ -198,6 +198,41 @@ router.get('/api/guests-checked-in', requireApiKey, async (req, res) => {
   res.json(checkedInWithEmail);
 });
 
+// ── Payment Status Toggle ──
+router.post('/api/guests/:id/paid', requireAuth, async (req, res) => {
+  const user = req.session.user;
+  if (user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+  const guest = await db.getGuestById(Number(req.params.id));
+  if (!guest) return res.status(404).json({ error: 'Guest not found' });
+
+  if (guest.paid) {
+    await db.markGuestUnpaid(guest.id);
+  } else {
+    await db.markGuestPaid(guest.id);
+  }
+
+  const event = await db.getActiveEvent();
+  if (event) {
+    await db.logActivity(event.id, guest.paid ? 'mark_unpaid' : 'mark_paid', {
+      guestId: guest.id,
+      userId: user.id,
+      details: `${user.display_name} marked ${guest.name} as ${guest.paid ? 'unpaid' : 'paid'}`,
+    });
+  }
+
+  const updated = await db.getGuestById(guest.id);
+  res.json({ status: 'ok', guest: updated });
+});
+
+// ── n8n: Get paid guests with emails (for sending badges) ──
+router.get('/api/guests-paid', requireApiKey, async (req, res) => {
+  const event = await db.getActiveEvent();
+  if (!event) return res.json([]);
+  const guests = await db.getPaidGuestsWithEmail(event.id);
+  res.json(guests);
+});
+
 // ── Announcements ──
 router.post('/api/announcement', requireAuth, async (req, res) => {
   const user = req.session.user;

@@ -129,6 +129,16 @@ async function migrate(pool) {
     console.log('Added feedback_url column to events table.');
   }
 
+  // Auto-migrate: add paid column to guests
+  const { rows: paidCol } = await pool.query(`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'guests' AND column_name = 'paid'
+  `);
+  if (paidCol.length === 0) {
+    await pool.query('ALTER TABLE guests ADD COLUMN paid BOOLEAN DEFAULT false');
+    console.log('Added paid column to guests table.');
+  }
+
   console.log('Database migration complete.');
 }
 

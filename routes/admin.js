@@ -195,7 +195,7 @@ router.get('/admin/export-csv', requireAdmin, async (req, res) => {
   const userMap = {};
   users.forEach(u => { userMap[u.id] = u.display_name; });
 
-  const header = 'Name,Category,Table,Dietary,Phone,Email,Family Size,Checked In,Checked In At,Checked In By,Scan Count,Token\n';
+  const header = 'Name,Category,Table,Dietary,Phone,Email,Family Size,Paid,Checked In,Checked In At,Checked In By,Scan Count,Token\n';
   const rows = guests.map(g =>
     [
       `"${(g.name || '').replace(/"/g, '""')}"`,
@@ -205,6 +205,7 @@ router.get('/admin/export-csv', requireAdmin, async (req, res) => {
       g.phone || '',
       g.email || '',
       g.family_size || 1,
+      g.paid ? 'Yes' : 'No',
       g.checked_in ? 'Yes' : 'No',
       g.checked_in_at ? new Date(g.checked_in_at).toLocaleString() : '',
       g.checked_in_by ? (userMap[g.checked_in_by] || 'QR Scan') : '',
@@ -278,6 +279,38 @@ router.post('/admin/send-invitations', requireAdmin, async (req, res) => {
   });
 
   res.redirect('/admin');
+});
+
+// ── Send Badges to Paid Guests via n8n ──
+router.post('/admin/send-badges', requireAdmin, async (req, res) => {
+  const webhookUrl = process.env.N8N_WEBHOOK_URL;
+  if (!webhookUrl) return res.redirect('/admin#invitations');
+
+  const event = await db.getActiveEvent();
+  if (!event) return res.redirect('/admin#invitations');
+
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'send_badges',
+        app_base_url: baseUrl,
+        api_key: process.env.N8N_API_KEY,
+        event: { name: event.name, date: event.event_date, time: event.event_time, venue: event.venue },
+      }),
+    });
+  } catch (e) {
+    console.error('Failed to trigger n8n badge webhook:', e.message);
+  }
+
+  await db.logActivity(event.id, 'send_badges', {
+    userId: req.session.user.id,
+    details: `${req.session.user.display_name} triggered badge emails to paid guests via n8n`,
+  });
+
+  res.redirect('/admin#invitations');
 });
 
 // ── Send Feedback Survey via n8n ──
@@ -611,6 +644,7 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
                 <th>${L('table.category')}</th>
                 <th>${L('table.table')}</th>
                 <th>${L('table.dietary')}</th>
+                <th>Paid</th>
                 <th>${L('table.status')}</th>
                 <th>${L('table.time')}</th>
                 <th>${L('table.actions')}</th>
@@ -689,11 +723,19 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
         <p class="muted" style="margin-bottom:16px">${L('invite.desc')}</p>
 
         ${process.env.N8N_WEBHOOK_URL ? `
-        <div class="invitation-actions">
-          <form method="POST" action="/admin/send-invitations">
-            <button type="submit" class="btn btn-gold" onclick="return confirm('${L('invite.send_confirm')}')">${L('invite.send_all')}</button>
-          </form>
-          <p class="muted" style="font-size:0.8rem;margin-top:8px">This will trigger the n8n workflow to email each guest their personalized invitation with badge PDF.</p>
+        <div class="invitation-actions" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start">
+          <div>
+            <form method="POST" action="/admin/send-invitations">
+              <button type="submit" class="btn btn-gold" onclick="return confirm('Send payment invitation emails to all guests? (No badge attached)')">&#9993; Send Invitations</button>
+            </form>
+            <p class="muted" style="font-size:0.8rem;margin-top:6px">Sends event details + Ziina payment link.<br><strong>No badge/QR code attached.</strong></p>
+          </div>
+          <div>
+            <form method="POST" action="/admin/send-badges">
+              <button type="submit" class="btn btn-primary" onclick="return confirm('Send badge emails to all PAID guests who have an email address?')" style="background:linear-gradient(135deg,#27ae60,#1e8449)">&#127915; Send Badges to Paid</button>
+            </form>
+            <p class="muted" style="font-size:0.8rem;margin-top:6px">Sends QR badge to guests marked as <strong>Paid</strong>.<br>Mark guests as paid in the Registration tab.</p>
+          </div>
         </div>
         ` : `
         <div style="background:rgba(243,156,18,0.1);border:1px solid rgba(243,156,18,0.3);border-radius:8px;padding:16px;margin-bottom:16px">
@@ -721,28 +763,21 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
       </div>
       ` : ''}
 
+      <!-- Invitation Email Preview (payment only, no badge) -->
       <div class="card">
-        <h2>${L('invite.preview')}</h2>
-        <p class="muted" style="margin-bottom:16px">${L('invite.preview_desc')}</p>
+        <h2>&#9993; Invitation Email Preview</h2>
+        <p class="muted" style="margin-bottom:16px">This is what guests receive when you click "Send Invitations" — payment link only, no badge.</p>
         <div style="background:#0a1628;border-radius:12px;padding:0;border:2px solid #d4af37;overflow:hidden;max-width:480px;margin:0 auto">
-          <!-- Top gold bar -->
           <div style="height:5px;background:linear-gradient(90deg,#b8942e,#d4af37,#f0d060,#d4af37,#b8942e)"></div>
           <div style="background:linear-gradient(180deg,#0f1f3a 0%,#162d4a 50%,#0f1f3a 100%);padding:32px 24px">
             <div style="text-align:center">
-              <!-- Moon + Header -->
               <div style="font-size:2.4rem;margin-bottom:10px">&#127769;</div>
               <h3 style="color:#d4af37;margin:0 0 4px;font-size:1.15rem;font-weight:700;letter-spacing:0.5px">${escapeHtml(event.name)}</h3>
               <p style="color:#8899aa;font-size:0.78rem;margin:0 0 18px">${L('invite.cordially')}</p>
-
-              <!-- Gold divider -->
               <div style="height:1px;background:linear-gradient(90deg,transparent,#d4af37,transparent);margin:0 40px 4px"></div>
               <div style="color:#d4af37;font-size:6px;margin-bottom:18px">&#9670;</div>
-
-              <!-- Guest name -->
               <p style="color:#8899aa;font-size:0.7rem;text-transform:uppercase;letter-spacing:2px;margin:0 0 6px">Dear Guest</p>
               <p style="color:#fff;font-size:1.4rem;font-weight:700;margin:0 0 16px">Guest Name</p>
-
-              <!-- Event details box -->
               <div style="display:inline-block;background:rgba(212,175,55,0.08);border:1px solid rgba(212,175,55,0.2);border-radius:10px;padding:16px 24px;margin-bottom:16px">
                 <span style="color:#d4af37;font-size:0.65rem;text-transform:uppercase;letter-spacing:1px">DATE</span>
                 <div style="color:#fff;font-size:0.95rem;font-weight:600;margin-bottom:6px">${escapeHtml(event.event_date)}</div>
@@ -751,31 +786,59 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
                 <span style="color:#d4af37;font-size:0.65rem;text-transform:uppercase;letter-spacing:1px">VENUE</span>
                 <div style="color:#fff;font-size:0.95rem;font-weight:600">${escapeHtml(event.venue)}</div>
               </div>
-
-              <!-- Badge attached -->
-              <div style="background:rgba(46,204,113,0.12);border:1px solid rgba(46,204,113,0.25);border-radius:8px;padding:12px 16px;margin:0 auto 16px;max-width:300px">
-                <p style="color:#2ecc71;margin:0;font-size:0.82rem;font-weight:600">&#128206; Your invitation badge is attached</p>
-                <p style="color:#8899aa;font-size:0.7rem;margin:4px 0 0">Print it or have the QR code ready on your phone</p>
-              </div>
-
-              <!-- Divider -->
               <div style="height:1px;background:linear-gradient(90deg,transparent,rgba(212,175,55,0.3),transparent);margin:0 30px 16px"></div>
-
-              <!-- Ziina payment -->
               <div style="background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.2);border-radius:10px;padding:16px 20px;margin:0 auto 16px;max-width:320px">
-                <p style="color:#bcc5d0;font-size:0.82rem;margin:0 0 10px">Complete your registration by paying below:</p>
+                <p style="color:#bcc5d0;font-size:0.82rem;margin:0 0 10px">Secure your spot by paying below:</p>
                 <div style="display:inline-block;background:linear-gradient(135deg,#7C3AED,#5B21B6);border-radius:6px;padding:10px 28px;margin-bottom:8px">
                   <span style="color:#fff;font-size:0.9rem;font-weight:700">Pay with Ziina</span>
                 </div>
                 <p style="color:#6b7a8d;font-size:0.65rem;margin:0">&#128274; Secure payment powered by <span style="color:#7C3AED;font-weight:700">ziina</span></p>
               </div>
-
-              <!-- Footer -->
+              <div style="background:rgba(243,156,18,0.08);border:1px solid rgba(243,156,18,0.2);border-radius:8px;padding:10px 16px;margin:0 auto 16px;max-width:320px">
+                <p style="color:#f39c12;font-size:0.78rem;margin:0;font-weight:600">&#9888; Your badge will be sent after payment is confirmed</p>
+              </div>
               <p style="color:#8899aa;font-size:0.8rem;margin:0 0 4px">We look forward to seeing you!</p>
               <p style="color:#d4af37;font-size:0.9rem;font-weight:600;margin:0">${L('ramadan_kareem')} &#127769;</p>
             </div>
           </div>
-          <!-- Bottom gold bar -->
+          <div style="height:3px;background:linear-gradient(90deg,#b8942e,#d4af37,#f0d060,#d4af37,#b8942e)"></div>
+        </div>
+      </div>
+
+      <!-- Badge Email Preview -->
+      <div class="card">
+        <h2>&#127915; Badge Email Preview</h2>
+        <p class="muted" style="margin-bottom:16px">This is what <strong>paid</strong> guests receive when you click "Send Badges to Paid" — badge attached, no payment link.</p>
+        <div style="background:#0a1628;border-radius:12px;padding:0;border:2px solid #d4af37;overflow:hidden;max-width:480px;margin:0 auto">
+          <div style="height:5px;background:linear-gradient(90deg,#b8942e,#d4af37,#f0d060,#d4af37,#b8942e)"></div>
+          <div style="background:linear-gradient(180deg,#0f1f3a 0%,#162d4a 50%,#0f1f3a 100%);padding:32px 24px">
+            <div style="text-align:center">
+              <div style="font-size:2.4rem;margin-bottom:10px">&#127769;</div>
+              <h3 style="color:#d4af37;margin:0 0 4px;font-size:1.15rem;font-weight:700;letter-spacing:0.5px">${escapeHtml(event.name)}</h3>
+              <p style="color:#8899aa;font-size:0.78rem;margin:0 0 18px">${L('invite.cordially')}</p>
+              <div style="height:1px;background:linear-gradient(90deg,transparent,#d4af37,transparent);margin:0 40px 4px"></div>
+              <div style="color:#d4af37;font-size:6px;margin-bottom:18px">&#9670;</div>
+              <p style="color:#8899aa;font-size:0.7rem;text-transform:uppercase;letter-spacing:2px;margin:0 0 6px">Dear Guest</p>
+              <p style="color:#fff;font-size:1.4rem;font-weight:700;margin:0 0 16px">Guest Name</p>
+              <div style="display:inline-block;background:rgba(212,175,55,0.08);border:1px solid rgba(212,175,55,0.2);border-radius:10px;padding:16px 24px;margin-bottom:16px">
+                <span style="color:#d4af37;font-size:0.65rem;text-transform:uppercase;letter-spacing:1px">DATE</span>
+                <div style="color:#fff;font-size:0.95rem;font-weight:600;margin-bottom:6px">${escapeHtml(event.event_date)}</div>
+                <span style="color:#d4af37;font-size:0.65rem;text-transform:uppercase;letter-spacing:1px">TIME</span>
+                <div style="color:#fff;font-size:0.95rem;font-weight:600;margin-bottom:6px">${escapeHtml(event.event_time)}</div>
+                <span style="color:#d4af37;font-size:0.65rem;text-transform:uppercase;letter-spacing:1px">VENUE</span>
+                <div style="color:#fff;font-size:0.95rem;font-weight:600">${escapeHtml(event.venue)}</div>
+              </div>
+              <div style="background:rgba(46,204,113,0.12);border:1px solid rgba(46,204,113,0.25);border-radius:8px;padding:12px 16px;margin:0 auto 16px;max-width:300px">
+                <p style="color:#2ecc71;margin:0;font-size:0.82rem;font-weight:600">&#128206; Your invitation badge is attached</p>
+                <p style="color:#8899aa;font-size:0.7rem;margin:4px 0 0">Print it or have the QR code ready on your phone</p>
+              </div>
+              <div style="background:rgba(46,204,113,0.08);border:1px solid rgba(46,204,113,0.2);border-radius:8px;padding:10px 16px;margin:0 auto 16px;max-width:320px">
+                <p style="color:#2ecc71;font-size:0.78rem;margin:0;font-weight:600">&#9989; Payment confirmed — you're all set!</p>
+              </div>
+              <p style="color:#8899aa;font-size:0.8rem;margin:0 0 4px">We look forward to seeing you!</p>
+              <p style="color:#d4af37;font-size:0.9rem;font-weight:600;margin:0">${L('ramadan_kareem')} &#127769;</p>
+            </div>
+          </div>
           <div style="height:3px;background:linear-gradient(90deg,#b8942e,#d4af37,#f0d060,#d4af37,#b8942e)"></div>
         </div>
       </div>

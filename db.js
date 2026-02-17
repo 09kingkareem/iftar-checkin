@@ -234,6 +234,23 @@ async function getCheckinTimeline(eventId) {
   return rows;
 }
 
+// ── Payment Tracking ──
+async function markGuestPaid(id) {
+  await pool.query('UPDATE guests SET paid = true WHERE id = $1', [id]);
+}
+
+async function markGuestUnpaid(id) {
+  await pool.query('UPDATE guests SET paid = false WHERE id = $1', [id]);
+}
+
+async function getPaidGuestsWithEmail(eventId) {
+  const { rows } = await pool.query(
+    "SELECT * FROM guests WHERE event_id = $1 AND paid = true AND email IS NOT NULL AND email != '' ORDER BY name",
+    [eventId]
+  );
+  return rows;
+}
+
 // ── Announcements ──
 async function createAnnouncement(eventId, message, type, userId) {
   // Dismiss any active announcements first
@@ -268,5 +285,6 @@ module.exports = {
   addGuests, addGuestsBulk, addSingleGuest, getAllGuests, getGuestByToken, getGuestById,
   checkInGuest, incrementScanCount, searchGuests, getStats, updateGuest, deleteGuest, deleteAllGuests,
   logActivity, getRecentActivity, getCheckinTimeline,
+  markGuestPaid, markGuestUnpaid, getPaidGuestsWithEmail,
   createAnnouncement, getActiveAnnouncement, dismissAnnouncement,
 };

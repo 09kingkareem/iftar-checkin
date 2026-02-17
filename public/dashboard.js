@@ -54,7 +54,7 @@ async function refreshGuests(search = '') {
     if (!tbody) return;
 
     tbody.innerHTML = guests.length === 0
-      ? '<tr><td colspan="7" class="text-center muted" style="padding:20px">No guests found</td></tr>'
+      ? '<tr><td colspan="8" class="text-center muted" style="padding:20px">No guests found</td></tr>'
       : guests.map(g => `
         <tr>
           <td>
@@ -66,6 +66,11 @@ async function refreshGuests(search = '') {
           <td><span class="badge cat-${g.category || 'guest'}">${g.category || 'guest'}</span></td>
           <td>${esc(g.table_number || '-')}</td>
           <td>${esc(g.dietary_restrictions || '-')}</td>
+          <td>
+            <span class="badge ${g.paid ? 'badge-checked' : 'badge-pending'}" style="cursor:pointer" onclick="togglePaid(${g.id})" title="Click to toggle">
+              ${g.paid ? '&#9989; Paid' : 'Unpaid'}
+            </span>
+          </td>
           <td><span class="badge ${g.checked_in ? 'badge-checked' : 'badge-pending'}">${g.checked_in ? 'Checked In' : 'Pending'}</span></td>
           <td>${g.checked_in_at ? new Date(g.checked_in_at).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) : '-'}</td>
           <td class="actions-cell">
@@ -87,6 +92,19 @@ async function manualCheckin(id) {
     }
     refreshStats();
     refreshGuests();
+  } catch (e) {}
+}
+
+// ── Toggle Paid Status ──
+async function togglePaid(id) {
+  try {
+    const res = await fetch(`/api/guests/${id}/paid`, { method: 'POST' });
+    if (res.ok) {
+      refreshGuests();
+    } else {
+      const data = await res.json();
+      alert(data.error || 'Failed to update');
+    }
   } catch (e) {}
 }
 
