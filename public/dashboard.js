@@ -1,6 +1,6 @@
 // ── User Role ──
 const USER_ROLE = window.__USER_ROLE__ || 'volunteer';
-const IS_ADMIN = USER_ROLE === 'admin';
+const IS_ADMIN = USER_ROLE === 'admin' || USER_ROLE === 'superadmin';
 
 // ── WebSocket Connection ──
 const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';

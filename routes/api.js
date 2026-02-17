@@ -99,7 +99,7 @@ router.put('/api/guests/:id', requireAuth, async (req, res) => {
   if (!guest) return res.status(404).json({ error: 'Guest not found' });
 
   const user = req.session.user;
-  if (user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  if (user.role !== 'admin' && user.role !== 'superadmin') return res.status(403).json({ error: 'Admin only' });
 
   const { name, category, dietary_restrictions, table_number, phone, email, family_size } = req.body;
   await db.updateGuest(guest.id, {
@@ -202,7 +202,7 @@ router.get('/api/guests-checked-in', requireApiKey, async (req, res) => {
 // ── Payment Status Toggle ──
 router.post('/api/guests/:id/paid', requireAuth, async (req, res) => {
   const user = req.session.user;
-  if (user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  if (user.role !== 'admin' && user.role !== 'superadmin') return res.status(403).json({ error: 'Admin only' });
 
   const guest = await db.getGuestById(Number(req.params.id));
   if (!guest) return res.status(404).json({ error: 'Guest not found' });
@@ -360,7 +360,7 @@ router.get('/api/announcement', requireAuth, async (req, res) => {
 
 router.post('/api/announcement/:id/dismiss', requireAuth, async (req, res) => {
   const user = req.session.user;
-  if (user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  if (user.role !== 'admin' && user.role !== 'superadmin') return res.status(403).json({ error: 'Admin only' });
 
   await db.dismissAnnouncement(Number(req.params.id));
 

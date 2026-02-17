@@ -19,7 +19,7 @@ async function migrate(pool) {
       email TEXT,
       password_hash TEXT NOT NULL,
       display_name TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'volunteer' CHECK (role IN ('admin', 'volunteer')),
+      role TEXT NOT NULL DEFAULT 'volunteer' CHECK (role IN ('superadmin', 'admin', 'volunteer')),
       is_active BOOLEAN DEFAULT true,
       last_login TIMESTAMPTZ,
       created_by INTEGER REFERENCES users(id),
@@ -87,15 +87,29 @@ async function migrate(pool) {
   }
 
   // Seed default admin if none exists
-  const { rows: admins } = await pool.query("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
+  const { rows: admins } = await pool.query("SELECT id FROM users WHERE role IN ('admin', 'superadmin') LIMIT 1");
   if (admins.length === 0) {
     const hash = await bcrypt.hash('admin123', 12);
     await pool.query(
       `INSERT INTO users (username, password_hash, display_name, role) VALUES ($1, $2, $3, $4)`,
-      ['admin', hash, 'Administrator', 'admin']
+      ['admin', hash, 'Administrator', 'superadmin']
     );
-    console.log('Default admin created — username: admin, password: admin123');
+    console.log('Default admin created — username: admin, password: admin123 (superadmin)');
   }
+
+  // Auto-migrate: update role constraint to include superadmin
+  try {
+    await pool.query(`
+      ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+      ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('superadmin', 'admin', 'volunteer'));
+    `);
+    console.log('Updated role constraint to include superadmin.');
+  } catch (e) {
+    // Constraint may already be correct
+  }
+
+  // Auto-migrate: upgrade existing default admin to superadmin
+  await pool.query(`UPDATE users SET role = 'superadmin' WHERE username = 'admin' AND role = 'admin'`);
 
   // ── Auto-migrate existing databases: add family_size column + update category constraint ──
   const { rows: colCheck } = await pool.query(`

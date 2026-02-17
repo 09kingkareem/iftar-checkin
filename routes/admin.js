@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const bcrypt = require('bcrypt');
 const db = require('../db');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireAdmin, requireSuperAdmin, isAdmin, isSuperAdmin } = require('../middleware/auth');
 const { generatePDF, generateSingleTicket } = require('../generate-pdf');
 const { generateReport } = require('../generate-report');
 const { t } = require('../i18n');
@@ -252,7 +252,7 @@ router.post('/admin/checkin/:id', requireAuth, async (req, res) => {
 });
 
 // ── Send Invitations via n8n ──
-router.post('/admin/send-invitations', requireAdmin, async (req, res) => {
+router.post('/admin/send-invitations', requireSuperAdmin, async (req, res) => {
   const webhookUrl = process.env.N8N_WEBHOOK_URL;
   if (!webhookUrl) return res.redirect('/admin#invitations');
 
@@ -311,7 +311,7 @@ router.post('/admin/send-invitations', requireAdmin, async (req, res) => {
 });
 
 // ── Send Badges to Paid Guests via n8n ──
-router.post('/admin/send-badges', requireAdmin, async (req, res) => {
+router.post('/admin/send-badges', requireSuperAdmin, async (req, res) => {
   const webhookUrl = process.env.N8N_WEBHOOK_URL;
   if (!webhookUrl) return res.redirect('/admin#invitations');
 
@@ -348,7 +348,7 @@ router.post('/admin/send-badges', requireAdmin, async (req, res) => {
 });
 
 // ── Ziina Webhook Registration ──
-router.post('/admin/ziina-setup', requireAdmin, async (req, res) => {
+router.post('/admin/ziina-setup', requireSuperAdmin, async (req, res) => {
   const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
   const webhookUrl = `${baseUrl}/api/webhook/ziina`;
   const secret = process.env.ZIINA_WEBHOOK_SECRET || null;
@@ -368,7 +368,7 @@ router.post('/admin/ziina-setup', requireAdmin, async (req, res) => {
 });
 
 // ── Send Feedback Survey via n8n ──
-router.post('/admin/send-feedback', requireAdmin, async (req, res) => {
+router.post('/admin/send-feedback', requireSuperAdmin, async (req, res) => {
   const webhookUrl = process.env.N8N_WEBHOOK_URL;
   if (!webhookUrl) return res.redirect('/admin#invitations');
 
@@ -401,7 +401,7 @@ router.post('/admin/send-feedback', requireAdmin, async (req, res) => {
 });
 
 // ── Reset (delete all guests) ──
-router.post('/admin/reset', requireAdmin, async (req, res) => {
+router.post('/admin/reset', requireSuperAdmin, async (req, res) => {
   const event = await db.getActiveEvent();
   if (event) {
     await db.deleteAllGuests(event.id);
@@ -414,7 +414,7 @@ router.post('/admin/reset', requireAdmin, async (req, res) => {
 });
 
 // ── Event Settings ──
-router.post('/admin/event', requireAdmin, async (req, res) => {
+router.post('/admin/event', requireSuperAdmin, async (req, res) => {
   const event = await db.getActiveEvent();
   if (!event) return res.redirect('/admin');
 
@@ -429,12 +429,12 @@ router.post('/admin/event', requireAdmin, async (req, res) => {
 });
 
 // ── User Management ──
-router.get('/admin/users', requireAdmin, async (req, res) => {
+router.get('/admin/users', requireSuperAdmin, async (req, res) => {
   const users = await db.getAllUsers();
   res.send(renderUsersPage(users, req.session.user, res.locals.lang || 'en', res.locals.dir || 'ltr'));
 });
 
-router.post('/admin/users/create', requireAdmin, async (req, res) => {
+router.post('/admin/users/create', requireSuperAdmin, async (req, res) => {
   const { username, password, display_name, role } = req.body;
   if (!username || !password || !display_name) return res.redirect('/admin/users');
 
@@ -446,14 +446,14 @@ router.post('/admin/users/create', requireAdmin, async (req, res) => {
     username: username.trim().toLowerCase(),
     password_hash: hash,
     display_name: display_name.trim(),
-    role: role === 'admin' ? 'admin' : 'volunteer',
+    role: ['admin', 'volunteer'].includes(role) ? role : 'volunteer',
     created_by: req.session.user.id,
   });
 
   res.redirect('/admin/users');
 });
 
-router.post('/admin/users/:id/toggle', requireAdmin, async (req, res) => {
+router.post('/admin/users/:id/toggle', requireSuperAdmin, async (req, res) => {
   const user = await db.getUserById(Number(req.params.id));
   if (user && user.id !== req.session.user.id) {
     await db.updateUserActive(user.id, !user.is_active);
@@ -518,15 +518,21 @@ router.get('/kiosk', (req, res) => {
 // ── Render Functions ──
 
 function renderNav(user, activePage = 'registration', lang = 'en') {
-  const isAdmin = user.role === 'admin';
+  const _isAdmin = isAdmin(user);
+  const _isSuperAdmin = isSuperAdmin(user);
   const L = (key) => t(lang, key);
 
   const tabs = [
-    { id: 'registration', label: L('nav.registration'), icon: '&#128203;', adminOnly: false },
-    { id: 'event-details', label: L('nav.event_details'), icon: '&#9881;', adminOnly: true },
-    { id: 'invitations', label: L('nav.invitations'), icon: '&#9993;', adminOnly: true },
-    { id: 'reports', label: L('nav.reports'), icon: '&#128202;', adminOnly: true },
-  ].filter(tab => !tab.adminOnly || isAdmin);
+    { id: 'registration', label: L('nav.registration'), icon: '&#128203;', minRole: 'volunteer' },
+    { id: 'event-details', label: L('nav.event_details'), icon: '&#9881;', minRole: 'admin' },
+    { id: 'invitations', label: L('nav.invitations'), icon: '&#9993;', minRole: 'superadmin' },
+    { id: 'reports', label: L('nav.reports'), icon: '&#128202;', minRole: 'admin' },
+  ].filter(tab => {
+    if (tab.minRole === 'volunteer') return true;
+    if (tab.minRole === 'admin') return _isAdmin;
+    if (tab.minRole === 'superadmin') return _isSuperAdmin;
+    return false;
+  });
 
   const isDashboard = ['registration', 'event-details', 'invitations', 'reports'].includes(activePage);
 
@@ -538,7 +544,7 @@ function renderNav(user, activePage = 'registration', lang = 'en') {
     return `<a href="/admin#${tab.id}" class="nav-tab">${tab.icon} ${tab.label}</a>`;
   }).join('');
 
-  const adminLinks = isAdmin ? `
+  const adminLinks = _isSuperAdmin ? `
     <a href="/admin/users" class="nav-tab ${activePage === 'users' ? 'nav-tab-active' : ''}">&#128101; ${L('nav.users')}</a>
   ` : '';
 
@@ -554,14 +560,15 @@ function renderNav(user, activePage = 'registration', lang = 'en') {
       <a href="/walkin" class="nav-tab ${activePage === 'walkin' ? 'nav-tab-active' : ''}">&#128694; ${L('nav.walkin')}</a>
       <a href="/kiosk" class="nav-tab" target="_blank">&#128247; ${L('nav.kiosk')}</a>
       ${langToggle}
-      <span class="nav-user">${escapeHtml(user.display_name)} (${user.role})</span>
+      <span class="nav-user">${escapeHtml(user.display_name)} <span class="role-badge role-${user.role}">${user.role === 'superadmin' ? 'super admin' : user.role}</span></span>
       <a href="/logout" class="nav-tab nav-logout">${L('nav.logout')}</a>
     </div>
   </nav>`;
 }
 
 function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
-  const isAdmin = user.role === 'admin';
+  const _isAdmin = isAdmin(user);
+  const _isSuperAdmin = isSuperAdmin(user);
   const L = (key) => t(lang, key);
 
   return `<!DOCTYPE html>
@@ -581,7 +588,7 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
     <!-- Announcement Banner (shown via JS) -->
     <div id="announcement-banner" class="announcement-banner" style="display:none">
       <span id="announcement-text"></span>
-      ${isAdmin ? '<button class="announcement-dismiss" onclick="dismissAnnouncement()">&#10005;</button>' : ''}
+      ${_isAdmin ? '<button class="announcement-dismiss" onclick="dismissAnnouncement()">&#10005;</button>' : ''}
     </div>
 
     <!-- ══════════════════════════════════ -->
@@ -638,7 +645,7 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
         </div>
       </div>
 
-      ${isAdmin ? `
+      ${_isAdmin ? `
       <div class="card">
         <h2>${L('dashboard.add_guest')}</h2>
         <form method="POST" action="/admin/guest/add" class="guest-add-form">
@@ -696,7 +703,7 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
                 <th>${L('table.category')}</th>
                 <th>${L('table.table')}</th>
                 <th>${L('table.dietary')}</th>
-                ${isAdmin ? '<th>Paid</th>' : ''}
+                ${_isAdmin ? '<th>Paid</th>' : ''}
                 <th>${L('table.status')}</th>
                 <th>${L('table.time')}</th>
                 <th>${L('table.actions')}</th>
@@ -707,7 +714,7 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
         </div>
       </div>
 
-      ${isAdmin ? `
+      ${_isSuperAdmin ? `
       <div class="card card-danger">
         <h2>${L('dashboard.danger_zone')}</h2>
         <form method="POST" action="/admin/reset" id="reset-form">
@@ -717,7 +724,7 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
       ` : ''}
     </div>
 
-    ${isAdmin ? `
+    ${_isAdmin ? `
     <!-- ══════════════════════════════════ -->
     <!-- TAB: Event Details                -->
     <!-- ══════════════════════════════════ -->
@@ -744,7 +751,7 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
         </div>
       </div>
 
-      ${isAdmin ? `
+      ${_isSuperAdmin ? `
       <div class="card">
         <h2>${L('event.edit')}</h2>
         <form method="POST" action="/admin/event" class="event-form">
@@ -766,7 +773,7 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
       </div>
       ` : ''}
 
-      ${isAdmin ? `
+      ${_isSuperAdmin ? `
       <div class="card">
         <h2>&#128179; Ziina Payment Gateway</h2>
         <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:16px">
@@ -798,7 +805,9 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
       </div>
       ` : ''}
     </div>
+    ` : '<!-- Event Details tab hidden for volunteers -->'}
 
+    ${_isSuperAdmin ? `
     <!-- ══════════════════════════════════ -->
     <!-- TAB: Invitations                  -->
     <!-- ══════════════════════════════════ -->
@@ -835,7 +844,7 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
         <a href="/admin/export-pdf" class="btn btn-gold">${L('btn.download_tickets')}</a>
       </div>
 
-      ${isAdmin && event.feedback_url ? `
+      ${event.feedback_url ? `
       <div class="card">
         <h2>Feedback Survey</h2>
         <p class="muted" style="margin-bottom:12px">Send the feedback form to all checked-in guests who have an email address.</p>
@@ -929,7 +938,9 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
         </div>
       </div>
     </div>
+    ` : '<!-- Invitations tab hidden for non-superadmins -->'}
 
+    ${_isAdmin ? `
     <!-- ══════════════════════════════════ -->
     <!-- TAB: Reports                      -->
     <!-- ══════════════════════════════════ -->
@@ -956,15 +967,13 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
         </div>
       </div>
 
-      ${isAdmin ? `
       <div class="card">
         <h2>${L('report.download')}</h2>
         <p class="muted" style="margin-bottom:16px">${L('report.download_desc')}</p>
         <a href="/admin/report-pdf" class="btn btn-gold">${L('report.download_btn')}</a>
       </div>
-      ` : ''}
     </div>
-    ` : '<!-- admin-only tabs hidden for volunteers -->'}
+    ` : '<!-- Reports tab hidden for volunteers -->'}
 
   </div>
 

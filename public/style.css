@@ -400,7 +400,8 @@ select {
   font-weight: 600;
 }
 
-.role-admin { background: rgba(212,175,55,0.2); color: var(--gold); }
+.role-superadmin { background: rgba(212,175,55,0.2); color: var(--gold); }
+.role-admin { background: rgba(46,204,113,0.2); color: #2ecc71; }
 .role-volunteer { background: rgba(52,152,219,0.2); color: #3498db; }
 
 /* ── Check-in Page ── */
