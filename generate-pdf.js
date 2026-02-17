@@ -119,9 +119,9 @@ async function drawBadge(doc, guest, baseUrl, event, x, y) {
   // ════════════════════════════════════
   let curY = y + 22;
 
-  // Crescent + star flanking event name
+  // Crescent moons flanking event name
   drawCrescentMoon(doc, innerX + 6, curY + 8, 8);
-  drawStar(doc, x + BADGE_W - pad - 6, curY + 6, 5);
+  drawCrescentMoon(doc, x + BADGE_W - pad - 6, curY + 8, 8, true);
 
   // Event name
   doc.font('Helvetica-Bold').fontSize(16).fillColor(C.gold);
@@ -245,11 +245,11 @@ async function drawBadge(doc, guest, baseUrl, event, x, y) {
     align: 'center',
   });
 
-  // ── Decorative stars bottom corners ──
-  drawStar(doc, x + 18, y + BADGE_H - 18, 4);
-  drawStar(doc, x + BADGE_W - 18, y + BADGE_H - 18, 4);
-  drawStar(doc, x + 28, y + BADGE_H - 26, 2.5);
-  drawStar(doc, x + BADGE_W - 28, y + BADGE_H - 26, 2.5);
+  // ── Decorative crescent moons bottom corners ──
+  drawCrescentMoon(doc, x + 18, y + BADGE_H - 18, 4);
+  drawCrescentMoon(doc, x + BADGE_W - 18, y + BADGE_H - 18, 4, true);
+  drawCrescentMoon(doc, x + 28, y + BADGE_H - 26, 2.5);
+  drawCrescentMoon(doc, x + BADGE_W - 28, y + BADGE_H - 26, 2.5, true);
 
   doc.restore();
 }
@@ -270,28 +270,13 @@ function drawCornerOrnaments(doc, x, y, w, h) {
   doc.restore();
 }
 
-function drawCrescentMoon(doc, cx, cy, r) {
+function drawCrescentMoon(doc, cx, cy, r, mirrored = false) {
   doc.save();
   doc.fillColor(C.gold).opacity(0.55);
   doc.circle(cx, cy, r).fill();
   doc.fillColor(C.navy);
-  doc.circle(cx + r * 0.35, cy - r * 0.15, r * 0.78).fill();
-  doc.opacity(1);
-  doc.restore();
-}
-
-function drawStar(doc, cx, cy, r) {
-  doc.save();
-  doc.fillColor(C.gold).opacity(0.45);
-  const pts = [];
-  for (let i = 0; i < 10; i++) {
-    const angle = -Math.PI / 2 + (i * Math.PI / 5);
-    const rad = i % 2 === 0 ? r : r * 0.4;
-    pts.push([cx + Math.cos(angle) * rad, cy + Math.sin(angle) * rad]);
-  }
-  doc.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 1; i < pts.length; i++) doc.lineTo(pts[i][0], pts[i][1]);
-  doc.closePath().fill();
+  const offsetX = mirrored ? -r * 0.35 : r * 0.35;
+  doc.circle(cx + offsetX, cy - r * 0.15, r * 0.78).fill();
   doc.opacity(1);
   doc.restore();
 }
