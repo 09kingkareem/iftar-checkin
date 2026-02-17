@@ -18,6 +18,9 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// Inline SVG crescent moon (no star) — Ramadan themed
+const MOON_SVG = (size = 24, color = '#d4af37') => `<svg width="${size}" height="${size}" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;display:inline-block"><path d="M70 10C50.2 10 33.4 23.4 28.2 42 23 60.6 29.8 80.4 46 90.8 30 88 16 76.4 11.4 60.4 5.4 39.6 15.4 17.6 36.2 11.6 41.4 10 46.8 9.4 52 10 58 10.8 64 13 70 10Z" fill="${color}"/></svg>`;
+
 const CATEGORY_COLORS = {
   student: '#3498db',
   parent: '#2ecc71',
@@ -457,7 +460,7 @@ function renderNav(user, activePage = 'registration', lang = 'en') {
     : '<a href="?lang=ar" class="nav-tab">عربي</a>';
 
   return `<nav class="navbar">
-    <div class="nav-brand">&#9770; ${L('nav.brand')}</div>
+    <div class="nav-brand">${MOON_SVG(22)} ${L('nav.brand')}</div>
     <div class="nav-links">
       ${tabLinks}
       ${adminLinks}
@@ -723,7 +726,7 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
         <p class="muted" style="margin-bottom:16px">${L('invite.preview_desc')}</p>
         <div style="background:#0a1628;border-radius:12px;padding:30px 20px;border:1px solid var(--border)">
           <div style="max-width:400px;margin:0 auto;text-align:center">
-            <div style="font-size:36px;margin-bottom:8px">&#9770;</div>
+            <div style="margin-bottom:8px">${MOON_SVG(48)}</div>
             <h3 style="color:#d4af37;margin:0 0 4px;font-size:1.1rem">${escapeHtml(event.name)}</h3>
             <p style="color:#8899aa;font-size:0.8rem;margin:0 0 16px">You are cordially invited</p>
             <div style="height:1px;background:linear-gradient(90deg,transparent,#d4af37,transparent);margin:0 40px 16px"></div>
@@ -938,7 +941,7 @@ function renderKiosk() {
 </head>
 <body>
   <div class="kiosk-container">
-    <h1 class="kiosk-title">&#9770; Iftar Check-in</h1>
+    <h1 class="kiosk-title">${MOON_SVG(36)} Iftar Check-in</h1>
     <div class="kiosk-video-wrap">
       <video id="kiosk-video" autoplay playsinline></video>
       <div class="scan-overlay"><div class="scan-line"></div></div>

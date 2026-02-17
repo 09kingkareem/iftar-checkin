@@ -71,7 +71,7 @@ function renderLogin(error = '', lang = 'en', dir = 'ltr') {
 <body>
   <div class="login-page">
     <div class="login-card">
-      <div class="login-logo">&#9770;</div>
+      <div class="login-logo"><svg width="60" height="60" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M70 10C50.2 10 33.4 23.4 28.2 42 23 60.6 29.8 80.4 46 90.8 30 88 16 76.4 11.4 60.4 5.4 39.6 15.4 17.6 36.2 11.6 41.4 10 46.8 9.4 52 10 58 10.8 64 13 70 10Z" fill="#d4af37"/></svg></div>
       <h1>${L('login.title')}</h1>
       <p class="login-subtitle">${L('login.subtitle')}</p>
       ${errorHtml}
