@@ -492,6 +492,79 @@ select {
   font-size: 0.9rem;
 }
 
+/* ── Announcement Banner ── */
+.announcement-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  font-weight: 600;
+  font-size: 1rem;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.announcement-info { background: rgba(52,152,219,0.15); border: 1px solid rgba(52,152,219,0.4); color: #3498db; }
+.announcement-success { background: rgba(46,204,113,0.15); border: 1px solid rgba(46,204,113,0.4); color: #2ecc71; }
+.announcement-warning { background: rgba(243,156,18,0.15); border: 1px solid rgba(243,156,18,0.4); color: #f39c12; }
+
+.announcement-dismiss {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0 4px;
+  opacity: 0.7;
+}
+
+.announcement-dismiss:hover { opacity: 1; }
+
+/* ── Kiosk Announcement Overlay ── */
+.kiosk-announcement-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  padding: 20px;
+  z-index: 9999;
+  animation: slideDown 0.3s ease;
+}
+
+.kiosk-announcement-content {
+  padding: 20px 40px;
+  border-radius: 12px;
+  font-size: 1.8rem;
+  font-weight: 700;
+  text-align: center;
+  max-width: 80%;
+}
+
+.kiosk-announcement-info .kiosk-announcement-content { background: rgba(52,152,219,0.9); color: white; }
+.kiosk-announcement-success .kiosk-announcement-content { background: rgba(46,204,113,0.9); color: white; }
+.kiosk-announcement-warning .kiosk-announcement-content { background: rgba(243,156,18,0.9); color: #1a1a1a; }
+
+/* ── Offline Indicator ── */
+.offline-indicator {
+  background: rgba(231, 76, 60, 0.9);
+  color: white;
+  text-align: center;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 9999;
+}
+
 /* ── Helpers ── */
 .muted { color: var(--text-muted); }
 .text-center { text-align: center; }
@@ -552,6 +625,45 @@ select {
 /* ── Guest Add Form ── */
 .guest-add-form .form-row {
   gap: 8px;
+}
+
+/* ── RTL Support ── */
+[dir="rtl"] body {
+  font-family: 'Segoe UI', 'Dubai', Tahoma, Arial, sans-serif;
+}
+
+[dir="rtl"] .navbar {
+  flex-direction: row-reverse;
+}
+
+[dir="rtl"] .nav-links {
+  flex-direction: row-reverse;
+}
+
+[dir="rtl"] .guest-table th,
+[dir="rtl"] .guest-table td {
+  text-align: right;
+}
+
+[dir="rtl"] .form-row {
+  flex-direction: row-reverse;
+}
+
+[dir="rtl"] .form-actions {
+  flex-direction: row-reverse;
+}
+
+[dir="rtl"] .activity-item {
+  direction: rtl;
+  text-align: right;
+}
+
+[dir="rtl"] .actions-cell {
+  flex-direction: row-reverse;
+}
+
+[dir="rtl"] .event-detail-item {
+  text-align: right;
 }
 
 /* ── Responsive ── */

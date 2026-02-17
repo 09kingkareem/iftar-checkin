@@ -4,6 +4,8 @@ const bcrypt = require('bcrypt');
 const db = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { generatePDF, generateSingleTicket } = require('../generate-pdf');
+const { generateReport } = require('../generate-report');
+const { t } = require('../i18n');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -30,8 +32,10 @@ router.get('/admin', requireAuth, async (req, res) => {
   const event = await db.getActiveEvent();
   if (!event) return res.send('No active event found.');
   const user = req.session.user;
+  const lang = res.locals.lang || 'en';
+  const dir = res.locals.dir || 'ltr';
 
-  res.send(renderDashboard(event, user));
+  res.send(renderDashboard(event, user, lang, dir));
 });
 
 // ── Import Guests ──
@@ -184,7 +188,11 @@ router.get('/admin/export-csv', requireAdmin, async (req, res) => {
   if (!event) return res.status(400).send('No active event.');
 
   const guests = await db.getAllGuests(event.id);
-  const header = 'Name,Category,Table,Dietary,Phone,Email,Checked In,Checked In At\n';
+  const users = await db.getAllUsers();
+  const userMap = {};
+  users.forEach(u => { userMap[u.id] = u.display_name; });
+
+  const header = 'Name,Category,Table,Dietary,Phone,Email,Family Size,Checked In,Checked In At,Checked In By,Scan Count,Token\n';
   const rows = guests.map(g =>
     [
       `"${(g.name || '').replace(/"/g, '""')}"`,
@@ -193,14 +201,19 @@ router.get('/admin/export-csv', requireAdmin, async (req, res) => {
       `"${(g.dietary_restrictions || '').replace(/"/g, '""')}"`,
       g.phone || '',
       g.email || '',
+      g.family_size || 1,
       g.checked_in ? 'Yes' : 'No',
       g.checked_in_at ? new Date(g.checked_in_at).toLocaleString() : '',
+      g.checked_in_by ? (userMap[g.checked_in_by] || 'QR Scan') : '',
+      g.scan_count || 0,
+      g.token || '',
     ].join(',')
   ).join('\n');
 
-  res.setHeader('Content-Type', 'text/csv');
+  const BOM = '\uFEFF';
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="guests.csv"');
-  res.send(header + rows);
+  res.send(BOM + header + rows);
 });
 
 // ── Manual Check-in (form POST) ──
@@ -264,6 +277,39 @@ router.post('/admin/send-invitations', requireAdmin, async (req, res) => {
   res.redirect('/admin');
 });
 
+// ── Send Feedback Survey via n8n ──
+router.post('/admin/send-feedback', requireAdmin, async (req, res) => {
+  const webhookUrl = process.env.N8N_WEBHOOK_URL;
+  if (!webhookUrl) return res.redirect('/admin#invitations');
+
+  const event = await db.getActiveEvent();
+  if (!event || !event.feedback_url) return res.redirect('/admin#invitations');
+
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'send_feedback',
+        app_base_url: baseUrl,
+        api_key: process.env.N8N_API_KEY,
+        feedback_url: event.feedback_url,
+        event: { name: event.name, date: event.event_date, time: event.event_time, venue: event.venue },
+      }),
+    });
+  } catch (e) {
+    console.error('Failed to trigger n8n feedback webhook:', e.message);
+  }
+
+  await db.logActivity(event.id, 'send_feedback', {
+    userId: req.session.user.id,
+    details: `${req.session.user.display_name} triggered feedback survey emails via n8n`,
+  });
+
+  res.redirect('/admin#invitations');
+});
+
 // ── Reset (delete all guests) ──
 router.post('/admin/reset', requireAdmin, async (req, res) => {
   const event = await db.getActiveEvent();
@@ -287,6 +333,7 @@ router.post('/admin/event', requireAdmin, async (req, res) => {
     event_date: req.body.event_date || event.event_date,
     event_time: req.body.event_time || event.event_time,
     venue: req.body.venue || event.venue,
+    feedback_url: req.body.feedback_url,
   });
   res.redirect('/admin');
 });
@@ -294,7 +341,7 @@ router.post('/admin/event', requireAdmin, async (req, res) => {
 // ── User Management ──
 router.get('/admin/users', requireAdmin, async (req, res) => {
   const users = await db.getAllUsers();
-  res.send(renderUsersPage(users, req.session.user));
+  res.send(renderUsersPage(users, req.session.user, res.locals.lang || 'en', res.locals.dir || 'ltr'));
 });
 
 router.post('/admin/users/create', requireAdmin, async (req, res) => {
@@ -324,6 +371,55 @@ router.post('/admin/users/:id/toggle', requireAdmin, async (req, res) => {
   res.redirect('/admin/users');
 });
 
+// ── Report PDF ──
+router.get('/admin/report-pdf', requireAdmin, async (req, res) => {
+  const event = await db.getActiveEvent();
+  if (!event) return res.status(400).send('No active event.');
+  const guests = await db.getAllGuests(event.id);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'attachment; filename="iftar-report.pdf"');
+  await generateReport(event, guests, res);
+});
+
+// ── Walk-in Registration ──
+router.get('/walkin', requireAuth, async (req, res) => {
+  const event = await db.getActiveEvent();
+  if (!event) return res.send('No active event.');
+  res.send(renderWalkin(req.session.user, event, res.locals.lang || 'en', res.locals.dir || 'ltr'));
+});
+
+router.post('/walkin/register', requireAuth, async (req, res) => {
+  const event = await db.getActiveEvent();
+  if (!event) return res.redirect('/walkin');
+  const user = req.session.user;
+  const { name, category, table_number } = req.body;
+
+  if (!name || !name.trim()) return res.redirect('/walkin');
+
+  const guest = await db.addSingleGuest(event.id, {
+    name, category: category || 'guest', table_number, dietary_restrictions: null, phone: null, email: null, family_size: 1,
+  });
+
+  await db.checkInGuest(guest.id, user.id);
+
+  await db.logActivity(event.id, 'walkin_registration', {
+    guestId: guest.id,
+    userId: user.id,
+    details: `Walk-in: ${guest.name} registered and checked in by ${user.display_name}`,
+  });
+
+  if (req.app.locals.broadcast) {
+    req.app.locals.broadcast({
+      type: 'checkin',
+      guest: { id: guest.id, name: guest.name, category: guest.category },
+      user: { display_name: user.display_name },
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  res.send(renderWalkinSuccess(req.session.user, event, guest, res.locals.lang || 'en', res.locals.dir || 'ltr'));
+});
+
 // ── Kiosk Mode ──
 router.get('/kiosk', (req, res) => {
   res.send(renderKiosk());
@@ -331,46 +427,55 @@ router.get('/kiosk', (req, res) => {
 
 // ── Render Functions ──
 
-function renderNav(user, activePage = 'registration') {
+function renderNav(user, activePage = 'registration', lang = 'en') {
   const isAdmin = user.role === 'admin';
+  const L = (key) => t(lang, key);
 
   const tabs = [
-    { id: 'registration', label: 'Registration', icon: '&#128203;' },
-    { id: 'event-details', label: 'Event Details', icon: '&#9881;' },
-    { id: 'invitations', label: 'Invitations', icon: '&#9993;' },
+    { id: 'registration', label: L('nav.registration'), icon: '&#128203;' },
+    { id: 'event-details', label: L('nav.event_details'), icon: '&#9881;' },
+    { id: 'invitations', label: L('nav.invitations'), icon: '&#9993;' },
+    { id: 'reports', label: L('nav.reports'), icon: '&#128202;' },
   ];
 
-  const isDashboard = ['registration', 'event-details', 'invitations'].includes(activePage);
+  const isDashboard = ['registration', 'event-details', 'invitations', 'reports'].includes(activePage);
 
-  const tabLinks = tabs.map(t => {
-    const isActive = activePage === t.id;
+  const tabLinks = tabs.map(tab => {
+    const isActive = activePage === tab.id;
     if (isDashboard) {
-      return `<a href="#" class="nav-tab ${isActive ? 'nav-tab-active' : ''}" onclick="switchTab('${t.id}')" data-tab="${t.id}">${t.icon} ${t.label}</a>`;
+      return `<a href="#" class="nav-tab ${isActive ? 'nav-tab-active' : ''}" onclick="switchTab('${tab.id}')" data-tab="${tab.id}">${tab.icon} ${tab.label}</a>`;
     }
-    return `<a href="/admin#${t.id}" class="nav-tab">${t.icon} ${t.label}</a>`;
+    return `<a href="/admin#${tab.id}" class="nav-tab">${tab.icon} ${tab.label}</a>`;
   }).join('');
 
   const adminLinks = isAdmin ? `
-    <a href="/admin/users" class="nav-tab ${activePage === 'users' ? 'nav-tab-active' : ''}">&#128101; Users</a>
+    <a href="/admin/users" class="nav-tab ${activePage === 'users' ? 'nav-tab-active' : ''}">&#128101; ${L('nav.users')}</a>
   ` : '';
 
+  const langToggle = lang === 'ar'
+    ? '<a href="?lang=en" class="nav-tab">EN</a>'
+    : '<a href="?lang=ar" class="nav-tab">عربي</a>';
+
   return `<nav class="navbar">
-    <div class="nav-brand">&#9770; Iftar Check-in</div>
+    <div class="nav-brand">&#9770; ${L('nav.brand')}</div>
     <div class="nav-links">
       ${tabLinks}
       ${adminLinks}
-      <a href="/kiosk" class="nav-tab" target="_blank">&#128247; Kiosk</a>
+      <a href="/walkin" class="nav-tab ${activePage === 'walkin' ? 'nav-tab-active' : ''}">&#128694; ${L('nav.walkin')}</a>
+      <a href="/kiosk" class="nav-tab" target="_blank">&#128247; ${L('nav.kiosk')}</a>
+      ${langToggle}
       <span class="nav-user">${escapeHtml(user.display_name)} (${user.role})</span>
-      <a href="/logout" class="nav-tab nav-logout">Logout</a>
+      <a href="/logout" class="nav-tab nav-logout">${L('nav.logout')}</a>
     </div>
   </nav>`;
 }
 
-function renderDashboard(event, user) {
+function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
   const isAdmin = user.role === 'admin';
+  const L = (key) => t(lang, key);
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${lang}" dir="${dir}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -378,33 +483,55 @@ function renderDashboard(event, user) {
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  ${renderNav(user, 'registration')}
+  ${renderNav(user, 'registration', lang)}
   <div class="container">
     <h1>${escapeHtml(event.name)}</h1>
     <p class="event-info">${escapeHtml(event.event_date)} at ${escapeHtml(event.event_time)} — ${escapeHtml(event.venue)}</p>
+
+    <!-- Announcement Banner (shown via JS) -->
+    <div id="announcement-banner" class="announcement-banner" style="display:none">
+      <span id="announcement-text"></span>
+      ${isAdmin ? '<button class="announcement-dismiss" onclick="dismissAnnouncement()">&#10005;</button>' : ''}
+    </div>
 
     <!-- ══════════════════════════════════ -->
     <!-- TAB: Registration                 -->
     <!-- ══════════════════════════════════ -->
     <div id="tab-registration" class="tab-content tab-active">
 
+      ${isAdmin ? `
+      <!-- Announcement Broadcast -->
+      <div class="card">
+        <h2>&#128227; ${L('announce.title')}</h2>
+        <div class="form-row">
+          <input type="text" id="announcement-msg" placeholder="${L('announce.placeholder')}" style="flex:3">
+          <select id="announcement-type" style="flex:1;min-width:100px">
+            <option value="info">${L('announce.info')}</option>
+            <option value="success">${L('announce.success')}</option>
+            <option value="warning">${L('announce.warning')}</option>
+          </select>
+          <button class="btn btn-gold" onclick="broadcastAnnouncement()">${L('btn.broadcast')}</button>
+        </div>
+      </div>
+      ` : ''}
+
       <!-- Stats Cards -->
       <div class="stats-grid">
         <div class="stat-card">
           <div class="stat-number" id="stat-total">-</div>
-          <div class="stat-label">Total Guests</div>
+          <div class="stat-label">${L('stats.total')}</div>
         </div>
         <div class="stat-card stat-checked">
           <div class="stat-number" id="stat-checked">-</div>
-          <div class="stat-label">Checked In</div>
+          <div class="stat-label">${L('stats.checked_in')}</div>
         </div>
         <div class="stat-card stat-pending">
           <div class="stat-number" id="stat-pending">-</div>
-          <div class="stat-label">Pending</div>
+          <div class="stat-label">${L('stats.pending')}</div>
         </div>
         <div class="stat-card stat-percent">
           <div class="stat-number" id="stat-percent">-</div>
-          <div class="stat-label">Progress</div>
+          <div class="stat-label">${L('stats.progress')}</div>
           <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
         </div>
       </div>
@@ -412,23 +539,23 @@ function renderDashboard(event, user) {
       <!-- Activity Feed + Chart -->
       <div class="dashboard-grid">
         <div class="card">
-          <h2>Live Activity</h2>
+          <h2>${L('dashboard.live_activity')}</h2>
           <div id="activity-feed" class="activity-feed">
-            <p class="muted">Waiting for activity...</p>
+            <p class="muted">${L('dashboard.waiting')}</p>
           </div>
         </div>
         <div class="card">
-          <h2>Check-in Timeline</h2>
+          <h2>${L('dashboard.timeline')}</h2>
           <canvas id="timeline-chart" width="400" height="200"></canvas>
         </div>
       </div>
 
       ${isAdmin ? `
       <div class="card">
-        <h2>Add Guest</h2>
+        <h2>${L('dashboard.add_guest')}</h2>
         <form method="POST" action="/admin/guest/add" class="guest-add-form">
           <div class="form-row">
-            <input type="text" name="name" placeholder="Guest Name *" required>
+            <input type="text" name="name" placeholder="${L('form.guest_name')}" required>
             <select name="category" onchange="document.getElementById('family-size-wrap').style.display=this.value==='family'?'':'none'">
               <option value="guest">Guest</option>
               <option value="student">Student</option>
@@ -440,30 +567,30 @@ function renderDashboard(event, user) {
             <span id="family-size-wrap" style="display:none">
               <input type="number" name="family_size" min="1" value="2" placeholder="Members" style="width:80px">
             </span>
-            <input type="text" name="table_number" placeholder="Table #">
+            <input type="text" name="table_number" placeholder="${L('form.table_number')}">
           </div>
           <div class="form-row" style="margin-top:10px">
-            <input type="text" name="dietary" placeholder="Dietary restrictions">
-            <input type="text" name="phone" placeholder="Phone">
-            <input type="text" name="email" placeholder="Email">
-            <button type="submit" class="btn btn-primary">Add Guest</button>
+            <input type="text" name="dietary" placeholder="${L('form.dietary')}">
+            <input type="text" name="phone" placeholder="${L('form.phone')}">
+            <input type="text" name="email" placeholder="${L('form.email')}">
+            <button type="submit" class="btn btn-primary">${L('btn.add_guest')}</button>
           </div>
         </form>
       </div>
 
       <div class="card">
-        <h2>Bulk Import</h2>
+        <h2>${L('dashboard.bulk_import')}</h2>
         <form method="POST" action="/admin/import" enctype="multipart/form-data">
-          <textarea name="names" placeholder="Paste guest names, one per line..." rows="3"></textarea>
-          <p class="muted" style="font-size:0.8rem;margin:6px 0">Or upload a CSV with columns: name, category, dietary, table, phone, email</p>
+          <textarea name="names" placeholder="${L('form.paste_names')}" rows="3"></textarea>
+          <p class="muted" style="font-size:0.8rem;margin:6px 0">${L('form.csv_hint')}</p>
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary">Import Names</button>
+            <button type="submit" class="btn btn-primary">${L('btn.import')}</button>
             <label class="btn btn-secondary file-upload">
-              Upload CSV
+              ${L('btn.upload_csv')}
               <input type="file" name="csv" accept=".csv,.txt" hidden onchange="this.form.submit()">
             </label>
-            <a href="/admin/export-pdf" class="btn btn-gold">Download Tickets PDF</a>
-            <a href="/admin/export-csv" class="btn btn-secondary">Export CSV</a>
+            <a href="/admin/export-pdf" class="btn btn-gold">${L('btn.download_tickets')}</a>
+            <a href="/admin/export-csv" class="btn btn-secondary">${L('btn.export_csv')}</a>
           </div>
         </form>
       </div>
@@ -471,19 +598,19 @@ function renderDashboard(event, user) {
 
       <!-- Guest List -->
       <div class="card">
-        <h2>Guest List</h2>
-        <input type="text" class="search-box" id="search" placeholder="Search guests...">
+        <h2>${L('dashboard.guest_list')}</h2>
+        <input type="text" class="search-box" id="search" placeholder="${L('dashboard.search')}">
         <div class="table-wrapper">
           <table class="guest-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Category</th>
-                <th>Table</th>
-                <th>Dietary</th>
-                <th>Status</th>
-                <th>Time</th>
-                <th>Actions</th>
+                <th>${L('table.name')}</th>
+                <th>${L('table.category')}</th>
+                <th>${L('table.table')}</th>
+                <th>${L('table.dietary')}</th>
+                <th>${L('table.status')}</th>
+                <th>${L('table.time')}</th>
+                <th>${L('table.actions')}</th>
               </tr>
             </thead>
             <tbody id="guest-list"></tbody>
@@ -493,9 +620,9 @@ function renderDashboard(event, user) {
 
       ${isAdmin ? `
       <div class="card card-danger">
-        <h2>Danger Zone</h2>
+        <h2>${L('dashboard.danger_zone')}</h2>
         <form method="POST" action="/admin/reset" id="reset-form">
-          <button type="submit" class="btn btn-danger">Clear All Guests</button>
+          <button type="submit" class="btn btn-danger">${L('dashboard.clear_all')}</button>
         </form>
       </div>
       ` : ''}
@@ -506,22 +633,22 @@ function renderDashboard(event, user) {
     <!-- ══════════════════════════════════ -->
     <div id="tab-event-details" class="tab-content" style="display:none">
       <div class="card">
-        <h2>Event Information</h2>
+        <h2>${L('event.info')}</h2>
         <div class="event-details-grid">
           <div class="event-detail-item">
-            <span class="event-detail-label">Event Name</span>
+            <span class="event-detail-label">${L('event.name')}</span>
             <span class="event-detail-value">${escapeHtml(event.name)}</span>
           </div>
           <div class="event-detail-item">
-            <span class="event-detail-label">Date</span>
+            <span class="event-detail-label">${L('event.date')}</span>
             <span class="event-detail-value">${escapeHtml(event.event_date)}</span>
           </div>
           <div class="event-detail-item">
-            <span class="event-detail-label">Time</span>
+            <span class="event-detail-label">${L('event.time')}</span>
             <span class="event-detail-value">${escapeHtml(event.event_time)}</span>
           </div>
           <div class="event-detail-item">
-            <span class="event-detail-label">Venue</span>
+            <span class="event-detail-label">${L('event.venue')}</span>
             <span class="event-detail-value">${escapeHtml(event.venue)}</span>
           </div>
         </div>
@@ -529,7 +656,7 @@ function renderDashboard(event, user) {
 
       ${isAdmin ? `
       <div class="card">
-        <h2>Edit Event Settings</h2>
+        <h2>${L('event.edit')}</h2>
         <form method="POST" action="/admin/event" class="event-form">
           <div class="form-row">
             <input type="text" name="event_name" value="${escapeHtml(event.name)}" placeholder="Event Name">
@@ -539,8 +666,11 @@ function renderDashboard(event, user) {
             <input type="text" name="event_time" value="${escapeHtml(event.event_time)}" placeholder="Time">
             <input type="text" name="venue" value="${escapeHtml(event.venue)}" placeholder="Venue">
           </div>
+          <div class="form-row" style="margin-top:10px">
+            <input type="text" name="feedback_url" value="${escapeHtml(event.feedback_url || '')}" placeholder="Feedback Form URL (optional)">
+          </div>
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary">Save Changes</button>
+            <button type="submit" class="btn btn-primary">${L('btn.save')}</button>
           </div>
         </form>
       </div>
@@ -552,13 +682,13 @@ function renderDashboard(event, user) {
     <!-- ══════════════════════════════════ -->
     <div id="tab-invitations" class="tab-content" style="display:none">
       <div class="card">
-        <h2>Email Invitations</h2>
-        <p class="muted" style="margin-bottom:16px">Send styled invitation emails with PDF badges attached to all guests who have an email address.</p>
+        <h2>${L('invite.title')}</h2>
+        <p class="muted" style="margin-bottom:16px">${L('invite.desc')}</p>
 
         ${process.env.N8N_WEBHOOK_URL ? `
         <div class="invitation-actions">
           <form method="POST" action="/admin/send-invitations">
-            <button type="submit" class="btn btn-gold" onclick="return confirm('Send email invitations to all guests with email addresses?')">Send Invitations to All</button>
+            <button type="submit" class="btn btn-gold" onclick="return confirm('${L('invite.send_confirm')}')">${L('invite.send_all')}</button>
           </form>
           <p class="muted" style="font-size:0.8rem;margin-top:8px">This will trigger the n8n workflow to email each guest their personalized invitation with badge PDF.</p>
         </div>
@@ -570,14 +700,27 @@ function renderDashboard(event, user) {
       </div>
 
       <div class="card">
-        <h2>Download Tickets</h2>
-        <p class="muted" style="margin-bottom:16px">Download all guest badges as a single PDF for printing.</p>
-        <a href="/admin/export-pdf" class="btn btn-gold">Download All Tickets PDF</a>
+        <h2>${L('invite.download')}</h2>
+        <p class="muted" style="margin-bottom:16px">${L('invite.download_desc')}</p>
+        <a href="/admin/export-pdf" class="btn btn-gold">${L('btn.download_tickets')}</a>
       </div>
 
+      ${isAdmin && event.feedback_url ? `
       <div class="card">
-        <h2>Invitation Preview</h2>
-        <p class="muted" style="margin-bottom:16px">This is how the email invitation looks to your guests:</p>
+        <h2>Feedback Survey</h2>
+        <p class="muted" style="margin-bottom:12px">Send the feedback form to all checked-in guests who have an email address.</p>
+        <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:12px">Survey URL: <a href="${escapeHtml(event.feedback_url)}" target="_blank" style="color:var(--gold)">${escapeHtml(event.feedback_url)}</a></p>
+        ${process.env.N8N_WEBHOOK_URL ? `
+        <form method="POST" action="/admin/send-feedback">
+          <button type="submit" class="btn btn-gold" onclick="return confirm('Send feedback survey to all checked-in guests with email addresses?')">Send Feedback Survey</button>
+        </form>
+        ` : '<p style="color:#f39c12;font-size:0.85rem">n8n webhook not configured.</p>'}
+      </div>
+      ` : ''}
+
+      <div class="card">
+        <h2>${L('invite.preview')}</h2>
+        <p class="muted" style="margin-bottom:16px">${L('invite.preview_desc')}</p>
         <div style="background:#0a1628;border-radius:12px;padding:30px 20px;border:1px solid var(--border)">
           <div style="max-width:400px;margin:0 auto;text-align:center">
             <div style="font-size:36px;margin-bottom:8px">&#9770;</div>
@@ -604,12 +747,48 @@ function renderDashboard(event, user) {
       </div>
     </div>
 
+    <!-- ══════════════════════════════════ -->
+    <!-- TAB: Reports                      -->
+    <!-- ══════════════════════════════════ -->
+    <div id="tab-reports" class="tab-content" style="display:none">
+      <div class="card">
+        <h2>${L('report.quick_stats')}</h2>
+        <div class="stats-grid" id="report-stats">
+          <div class="stat-card">
+            <div class="stat-number" id="report-total">-</div>
+            <div class="stat-label">${L('report.total')}</div>
+          </div>
+          <div class="stat-card stat-checked">
+            <div class="stat-number" id="report-checked">-</div>
+            <div class="stat-label">${L('report.checked')}</div>
+          </div>
+          <div class="stat-card stat-pending">
+            <div class="stat-number" id="report-noshows">-</div>
+            <div class="stat-label">${L('report.noshows')}</div>
+          </div>
+          <div class="stat-card stat-percent">
+            <div class="stat-number" id="report-rate">-</div>
+            <div class="stat-label">${L('report.rate')}</div>
+          </div>
+        </div>
+      </div>
+
+      ${isAdmin ? `
+      <div class="card">
+        <h2>${L('report.download')}</h2>
+        <p class="muted" style="margin-bottom:16px">${L('report.download_desc')}</p>
+        <a href="/admin/report-pdf" class="btn btn-gold">${L('report.download_btn')}</a>
+      </div>
+      ` : ''}
+    </div>
+
   </div>
 
   <script src="/dashboard.js"></script>
+  <script src="/offline.js"></script>
   <script>
     document.getElementById('reset-form')?.addEventListener('submit', function(e) {
-      if (!confirm('This will DELETE ALL guests. Are you sure?')) e.preventDefault();
+      if (!confirm('${L('confirm_delete_all')}')) e.preventDefault();
     });
 
     function switchTab(tabId) {
@@ -645,46 +824,47 @@ function renderDashboard(event, user) {
 </html>`;
 }
 
-function renderUsersPage(users, currentUser) {
+function renderUsersPage(users, currentUser, lang = 'en', dir = 'ltr') {
+  const L = (key) => t(lang, key);
   const rows = users.map(u => `
     <tr class="${u.is_active ? '' : 'row-inactive'}">
       <td>${escapeHtml(u.display_name)}</td>
       <td>${escapeHtml(u.username)}</td>
       <td><span class="role-badge role-${u.role}">${u.role}</span></td>
-      <td><span class="badge ${u.is_active ? 'badge-checked' : 'badge-inactive'}">${u.is_active ? 'Active' : 'Inactive'}</span></td>
+      <td><span class="badge ${u.is_active ? 'badge-checked' : 'badge-inactive'}">${u.is_active ? L('users.active') : L('users.inactive')}</span></td>
       <td>${u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}</td>
       <td>
         ${u.id !== currentUser.id ? `
           <form method="POST" action="/admin/users/${u.id}/toggle" style="display:inline">
             <button type="submit" class="btn btn-sm ${u.is_active ? 'btn-danger' : 'btn-primary'}">
-              ${u.is_active ? 'Deactivate' : 'Activate'}
+              ${u.is_active ? L('users.deactivate') : L('users.activate')}
             </button>
           </form>
-        ` : '<span class="muted">You</span>'}
+        ` : `<span class="muted">${L('users.you')}</span>`}
       </td>
     </tr>
   `).join('');
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${lang}" dir="${dir}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>User Management</title>
+  <title>${L('users.title')}</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  ${renderNav(currentUser, 'users')}
+  ${renderNav(currentUser, 'users', lang)}
   <div class="container">
-    <h1>User Management</h1>
+    <h1>${L('users.title')}</h1>
 
     <div class="card">
-      <h2>Create New User</h2>
+      <h2>${L('users.create')}</h2>
       <form method="POST" action="/admin/users/create" class="user-form">
         <div class="form-row">
-          <input type="text" name="username" placeholder="Username" required>
-          <input type="password" name="password" placeholder="Password" required>
-          <input type="text" name="display_name" placeholder="Display Name" required>
+          <input type="text" name="username" placeholder="${L('users.username')}" required>
+          <input type="password" name="password" placeholder="${L('users.password')}" required>
+          <input type="text" name="display_name" placeholder="${L('users.display_name')}" required>
           <select name="role">
             <option value="volunteer">Volunteer</option>
             <option value="admin">Admin</option>
@@ -695,17 +875,17 @@ function renderUsersPage(users, currentUser) {
     </div>
 
     <div class="card">
-      <h2>All Users</h2>
+      <h2>${L('users.all')}</h2>
       <div class="table-wrapper">
         <table class="guest-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Username</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th>Last Login</th>
-              <th>Actions</th>
+              <th>${L('table.name')}</th>
+              <th>${L('users.username')}</th>
+              <th>${L('users.role')}</th>
+              <th>${L('users.status')}</th>
+              <th>${L('users.last_login')}</th>
+              <th>${L('table.actions')}</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -767,6 +947,68 @@ function renderKiosk() {
     <p class="kiosk-instructions">Hold your QR code in front of the camera</p>
   </div>
   <script src="/kiosk.js"></script>
+</body>
+</html>`;
+}
+
+function renderWalkin(user, event, lang = 'en', dir = 'ltr') {
+  const L = (key) => t(lang, key);
+  return `<!DOCTYPE html>
+<html lang="${lang}" dir="${dir}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${L('walkin.title')}</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  ${renderNav(user, 'walkin', lang)}
+  <div class="container" style="max-width:500px">
+    <h1>${L('walkin.title')}</h1>
+    <p class="event-info">${escapeHtml(event.name)}</p>
+    <div class="card">
+      <h2>${L('walkin.register')}</h2>
+      <form method="POST" action="/walkin/register">
+        <input type="text" name="name" placeholder="${L('form.guest_name')}" required autofocus style="margin-bottom:12px">
+        <select name="category" style="margin-bottom:12px">
+          <option value="guest">${L('cat.guest')}</option>
+          <option value="student">${L('cat.student')}</option>
+          <option value="parent">${L('cat.parent')}</option>
+          <option value="teacher">${L('cat.teacher')}</option>
+          <option value="vip">${L('cat.vip')}</option>
+          <option value="family">${L('cat.family')}</option>
+        </select>
+        <input type="text" name="table_number" placeholder="${L('walkin.table')}" style="margin-bottom:12px">
+        <button type="submit" class="btn btn-primary" style="width:100%;padding:14px;font-size:1.1rem">${L('walkin.register')}</button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+function renderWalkinSuccess(user, event, guest, lang = 'en', dir = 'ltr') {
+  const L = (key) => t(lang, key);
+  return `<!DOCTYPE html>
+<html lang="${lang}" dir="${dir}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${L('walkin.title')} — &#9989;</title>
+  <link rel="stylesheet" href="/style.css">
+  <meta http-equiv="refresh" content="3;url=/walkin">
+</head>
+<body>
+  ${renderNav(user, 'walkin', lang)}
+  <div class="container" style="max-width:500px">
+    <div class="card" style="text-align:center;padding:40px 24px">
+      <div style="font-size:3rem;margin-bottom:12px">&#9989;</div>
+      <h2 style="color:var(--green-light);font-size:1.4rem">${escapeHtml(guest.name)}</h2>
+      <p style="color:var(--text-muted);margin-top:8px">${L('walkin.success')}</p>
+      ${guest.table_number ? `<p style="color:var(--gold);font-size:1.2rem;margin-top:12px">${L('table.table')}: ${escapeHtml(guest.table_number)}</p>` : ''}
+      <p class="muted" style="margin-top:16px;font-size:0.85rem">${L('walkin.redirect')}</p>
+    </div>
+  </div>
 </body>
 </html>`;
 }

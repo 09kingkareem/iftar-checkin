@@ -10,6 +10,10 @@ ws.onmessage = function(event) {
     addActivityItem(data);
   } else if (data.type === 'duplicate_scan') {
     addDuplicateAlert(data);
+  } else if (data.type === 'announcement') {
+    showAnnouncementBanner(data.announcement);
+  } else if (data.type === 'announcement_dismissed') {
+    hideAnnouncementBanner();
   }
 };
 
@@ -322,11 +326,76 @@ async function deleteGuest() {
   } catch (e) { alert('Failed to delete'); }
 }
 
+// ── Announcements ──
+let currentAnnouncementId = null;
+
+function showAnnouncementBanner(announcement) {
+  const banner = document.getElementById('announcement-banner');
+  const text = document.getElementById('announcement-text');
+  if (!banner || !text) return;
+  currentAnnouncementId = announcement.id;
+  text.textContent = announcement.message;
+  banner.className = 'announcement-banner announcement-' + (announcement.announcementType || announcement.type || 'info');
+  banner.style.display = 'flex';
+}
+
+function hideAnnouncementBanner() {
+  const banner = document.getElementById('announcement-banner');
+  if (banner) banner.style.display = 'none';
+  currentAnnouncementId = null;
+}
+
+async function broadcastAnnouncement() {
+  const msgEl = document.getElementById('announcement-msg');
+  const typeEl = document.getElementById('announcement-type');
+  if (!msgEl || !msgEl.value.trim()) return;
+  try {
+    await fetch('/api/announcement', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msgEl.value.trim(), type: typeEl ? typeEl.value : 'info' }),
+    });
+    msgEl.value = '';
+  } catch (e) {}
+}
+
+async function dismissAnnouncement() {
+  if (!currentAnnouncementId) return;
+  try {
+    await fetch(`/api/announcement/${currentAnnouncementId}/dismiss`, { method: 'POST' });
+  } catch (e) {}
+}
+
+async function loadActiveAnnouncement() {
+  try {
+    const res = await fetch('/api/announcement');
+    const data = await res.json();
+    if (data && data.id) {
+      showAnnouncementBanner({ id: data.id, message: data.message, announcementType: data.type });
+    }
+  } catch (e) {}
+}
+
+// ── Report Preview ──
+async function loadReportPreview() {
+  try {
+    const res = await fetch('/api/stats');
+    const stats = await res.json();
+    const el = (id) => document.getElementById(id);
+    if (el('report-total')) el('report-total').textContent = stats.total;
+    if (el('report-checked')) el('report-checked').textContent = stats.checkedIn;
+    if (el('report-noshows')) el('report-noshows').textContent = stats.total - stats.checkedIn;
+    if (el('report-rate')) el('report-rate').textContent = stats.total > 0 ? Math.round((stats.checkedIn / stats.total) * 100) + '%' : '0%';
+  } catch (e) {}
+}
+
 // ── Init ──
 refreshStats();
 refreshGuests();
 loadActivity();
 drawTimeline();
+loadActiveAnnouncement();
+loadReportPreview();
 
 // Refresh timeline every 30s
 setInterval(drawTimeline, 30000);

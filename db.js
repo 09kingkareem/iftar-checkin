@@ -19,11 +19,18 @@ async function getActiveEvent() {
   return rows[0] || null;
 }
 
-async function updateEvent(id, { name, event_date, event_time, venue }) {
-  await pool.query(
-    'UPDATE events SET name=$1, event_date=$2, event_time=$3, venue=$4 WHERE id=$5',
-    [name, event_date, event_time, venue, id]
-  );
+async function updateEvent(id, { name, event_date, event_time, venue, feedback_url }) {
+  if (feedback_url !== undefined) {
+    await pool.query(
+      'UPDATE events SET name=$1, event_date=$2, event_time=$3, venue=$4, feedback_url=$5 WHERE id=$6',
+      [name, event_date, event_time, venue, feedback_url || null, id]
+    );
+  } else {
+    await pool.query(
+      'UPDATE events SET name=$1, event_date=$2, event_time=$3, venue=$4 WHERE id=$5',
+      [name, event_date, event_time, venue, id]
+    );
+  }
 }
 
 // ── Users ──
@@ -227,6 +234,32 @@ async function getCheckinTimeline(eventId) {
   return rows;
 }
 
+// ── Announcements ──
+async function createAnnouncement(eventId, message, type, userId) {
+  // Dismiss any active announcements first
+  await pool.query(
+    'UPDATE announcements SET dismissed_at = NOW() WHERE event_id = $1 AND dismissed_at IS NULL',
+    [eventId]
+  );
+  const { rows } = await pool.query(
+    'INSERT INTO announcements (event_id, message, type, created_by) VALUES ($1, $2, $3, $4) RETURNING *',
+    [eventId, message, type || 'info', userId]
+  );
+  return rows[0];
+}
+
+async function getActiveAnnouncement(eventId) {
+  const { rows } = await pool.query(
+    'SELECT a.*, u.display_name as created_by_name FROM announcements a LEFT JOIN users u ON a.created_by = u.id WHERE a.event_id = $1 AND a.dismissed_at IS NULL ORDER BY a.created_at DESC LIMIT 1',
+    [eventId]
+  );
+  return rows[0] || null;
+}
+
+async function dismissAnnouncement(id) {
+  await pool.query('UPDATE announcements SET dismissed_at = NOW() WHERE id = $1', [id]);
+}
+
 module.exports = {
   pool,
   init,
@@ -235,4 +268,5 @@ module.exports = {
   addGuests, addGuestsBulk, addSingleGuest, getAllGuests, getGuestByToken, getGuestById,
   checkInGuest, incrementScanCount, searchGuests, getStats, updateGuest, deleteGuest, deleteAllGuests,
   logActivity, getRecentActivity, getCheckinTimeline,
+  createAnnouncement, getActiveAnnouncement, dismissAnnouncement,
 };

@@ -139,6 +139,49 @@ function startFallbackScanner() {
   scanFallback();
 }
 
+// ── Kiosk WebSocket for announcements ──
+const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const kioskWs = new WebSocket(`${wsProtocol}//${location.host}`);
+
+kioskWs.onmessage = function(event) {
+  const data = JSON.parse(event.data);
+  if (data.type === 'announcement') {
+    showKioskAnnouncement(data.announcement);
+  } else if (data.type === 'announcement_dismissed') {
+    hideKioskAnnouncement();
+  }
+};
+
+kioskWs.onclose = function() {
+  setTimeout(() => location.reload(), 5000);
+};
+
+function showKioskAnnouncement(announcement) {
+  let overlay = document.getElementById('kiosk-announcement');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'kiosk-announcement';
+    overlay.className = 'kiosk-announcement-overlay';
+    document.body.appendChild(overlay);
+  }
+  const typeClass = 'kiosk-announcement-' + (announcement.announcementType || announcement.type || 'info');
+  overlay.className = 'kiosk-announcement-overlay ' + typeClass;
+  overlay.innerHTML = `<div class="kiosk-announcement-content"><p>${announcement.message.replace(/</g,'&lt;')}</p></div>`;
+  overlay.style.display = 'flex';
+}
+
+function hideKioskAnnouncement() {
+  const overlay = document.getElementById('kiosk-announcement');
+  if (overlay) overlay.style.display = 'none';
+}
+
+// Load active announcement on kiosk start
+fetch('/api/announcement').then(r => r.json()).then(data => {
+  if (data && data.id) {
+    showKioskAnnouncement({ id: data.id, message: data.message, announcementType: data.type });
+  }
+}).catch(() => {});
+
 // Start
 startCamera();
 if (detector) {

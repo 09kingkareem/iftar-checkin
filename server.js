@@ -62,6 +62,17 @@ app.locals.broadcast = function(data) {
   });
 };
 
+// ── Language Middleware ──
+app.use((req, res, next) => {
+  if (req.query.lang && ['en', 'ar'].includes(req.query.lang)) {
+    req.session.lang = req.query.lang;
+  }
+  const lang = req.session.lang || 'en';
+  res.locals.lang = lang;
+  res.locals.dir = lang === 'ar' ? 'rtl' : 'ltr';
+  next();
+});
+
 // ── Routes ──
 app.use('/', require('./routes/auth'));
 app.use('/', require('./routes/admin'));

@@ -152,4 +152,101 @@ router.get('/api/ticket/:id', requireApiKey, async (req, res) => {
   await generateSingleTicket(guest, baseUrl, res, event);
 });
 
+// ── Offline sync: process queued check-ins ──
+router.post('/api/sync-checkins', requireAuth, async (req, res) => {
+  const { checkins } = req.body;
+  if (!Array.isArray(checkins)) return res.status(400).json({ error: 'Invalid data' });
+
+  const event = await db.getActiveEvent();
+  const user = req.session.user;
+  let synced = 0;
+
+  for (const item of checkins) {
+    const guest = await db.getGuestById(Number(item.guestId));
+    if (!guest || guest.checked_in) continue;
+
+    await db.checkInGuest(guest.id, user.id);
+    synced++;
+
+    if (event) {
+      await db.logActivity(event.id, 'checkin', {
+        guestId: guest.id,
+        userId: user.id,
+        details: `${guest.name} checked in by ${user.display_name} (offline sync)`,
+      });
+
+      if (req.app.locals.broadcast) {
+        req.app.locals.broadcast({
+          type: 'checkin',
+          guest: { id: guest.id, name: guest.name, category: guest.category },
+          user: { display_name: user.display_name },
+          timestamp: item.timestamp || new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  res.json({ status: 'ok', synced });
+});
+
+// ── n8n: Get checked-in guests with emails (for feedback) ──
+router.get('/api/guests-checked-in', requireApiKey, async (req, res) => {
+  const event = await db.getActiveEvent();
+  if (!event) return res.json([]);
+  const guests = await db.getAllGuests(event.id);
+  const checkedInWithEmail = guests.filter(g => g.checked_in && g.email && g.email.trim());
+  res.json(checkedInWithEmail);
+});
+
+// ── Announcements ──
+router.post('/api/announcement', requireAuth, async (req, res) => {
+  const user = req.session.user;
+  if (user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+  const event = await db.getActiveEvent();
+  if (!event) return res.status(400).json({ error: 'No active event' });
+
+  const { message, type } = req.body;
+  if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
+
+  const announcement = await db.createAnnouncement(event.id, message.trim(), type, user.id);
+
+  if (req.app.locals.broadcast) {
+    req.app.locals.broadcast({
+      type: 'announcement',
+      announcement: { id: announcement.id, message: announcement.message, announcementType: announcement.type, created_by_name: user.display_name },
+    });
+  }
+
+  await db.logActivity(event.id, 'announcement', {
+    userId: user.id,
+    details: `${user.display_name} broadcast: ${message.trim()}`,
+  });
+
+  res.json({ status: 'ok', announcement });
+});
+
+router.get('/api/announcement', requireAuth, async (req, res) => {
+  const event = await db.getActiveEvent();
+  if (!event) return res.json(null);
+  const announcement = await db.getActiveAnnouncement(event.id);
+  res.json(announcement);
+});
+
+router.post('/api/announcement/:id/dismiss', requireAuth, async (req, res) => {
+  const user = req.session.user;
+  if (user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+  await db.dismissAnnouncement(Number(req.params.id));
+
+  if (req.app.locals.broadcast) {
+    req.app.locals.broadcast({
+      type: 'announcement_dismissed',
+      announcementId: Number(req.params.id),
+    });
+  }
+
+  res.json({ status: 'ok' });
+});
+
 module.exports = router;

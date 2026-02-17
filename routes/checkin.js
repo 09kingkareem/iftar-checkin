@@ -1,5 +1,6 @@
 const express = require('express');
 const db = require('../db');
+const { t } = require('../i18n');
 
 const router = express.Router();
 
@@ -8,18 +9,20 @@ router.get('/checkin/:token', async (req, res) => {
   const guest = await db.getGuestByToken(req.params.token);
   const event = await db.getActiveEvent();
   const eventId = event ? event.id : null;
+  const lang = (res.locals && res.locals.lang) || 'en';
+  const dir = (res.locals && res.locals.dir) || 'ltr';
+  const L = (key) => t(lang, key);
 
   if (!guest) {
     return res.send(renderCheckin({
       status: 'error',
       icon: '&#10060;',
-      heading: 'Invalid QR Code',
-      message: 'This QR code is not recognized. Please see a volunteer for help.',
-    }));
+      heading: L('checkin.invalid'),
+      message: L('checkin.invalid_msg'),
+    }, lang, dir));
   }
 
   if (guest.checked_in) {
-    // Increment scan count for security tracking
     await db.incrementScanCount(guest.id);
 
     const checkedInBy = guest.checked_in_by
@@ -36,7 +39,6 @@ router.get('/checkin/:token', async (req, res) => {
         details: `Duplicate scan for ${guest.name} (scan #${guest.scan_count + 1})`,
       });
 
-      // Broadcast duplicate alert via WebSocket (attached by server.js)
       if (req.app.locals.broadcast) {
         req.app.locals.broadcast({
           type: 'duplicate_scan',
@@ -49,13 +51,12 @@ router.get('/checkin/:token', async (req, res) => {
     return res.send(renderCheckin({
       status: 'already',
       icon: '&#9888;&#65039;',
-      heading: 'Already Checked In',
+      heading: L('checkin.already'),
       message: `${escapeHtml(guest.name)} was checked in at ${time} by ${escapeHtml(byName)}.`,
-      subtitle: `Scan count: ${guest.scan_count + 1}`,
-    }));
+      subtitle: `${L('checkin.scan_count')} ${guest.scan_count + 1}`,
+    }, lang, dir));
   }
 
-  // Check in the guest (kiosk/public scan — no specific user)
   await db.checkInGuest(guest.id, null);
   const updatedGuest = await db.getGuestById(guest.id);
 
@@ -76,22 +77,22 @@ router.get('/checkin/:token', async (req, res) => {
 
   const isFamily = guest.category === 'family' && guest.family_size > 1;
   const checkinMsg = isFamily
-    ? `All ${guest.family_size} family members are checked in. Enjoy the iftar!`
-    : "You're checked in. Enjoy the iftar!";
+    ? L('checkin.family_enjoy').replace('{count}', guest.family_size)
+    : L('checkin.enjoy');
 
   res.send(renderCheckin({
     status: 'success',
     icon: '&#9989;',
-    heading: `Welcome, ${escapeHtml(guest.name)}!`,
+    heading: `${L('checkin.welcome')} ${escapeHtml(guest.name)}!`,
     message: checkinMsg,
-    subtitle: guest.table_number ? `Table: ${escapeHtml(guest.table_number)}` : '',
-  }));
+    subtitle: guest.table_number ? `${L('table.table')}: ${escapeHtml(guest.table_number)}` : '',
+  }, lang, dir));
 });
 
-function renderCheckin({ status, icon, heading, message, subtitle = '' }) {
+function renderCheckin({ status, icon, heading, message, subtitle = '' }, lang = 'en', dir = 'ltr') {
   const subtitleHtml = subtitle ? `<p class="checkin-subtitle">${subtitle}</p>` : '';
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${lang}" dir="${dir}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

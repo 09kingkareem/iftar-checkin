@@ -65,6 +65,16 @@ async function migrate(pool) {
     CREATE INDEX IF NOT EXISTS idx_guests_token ON guests (token);
     CREATE INDEX IF NOT EXISTS idx_guests_event ON guests (event_id);
     CREATE INDEX IF NOT EXISTS idx_activity_event ON activity_log (event_id);
+
+    CREATE TABLE IF NOT EXISTS announcements (
+      id SERIAL PRIMARY KEY,
+      event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
+      message TEXT NOT NULL,
+      type TEXT DEFAULT 'info' CHECK (type IN ('info', 'success', 'warning')),
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      dismissed_at TIMESTAMPTZ
+    );
   `);
 
   // Seed default event if none exists
@@ -107,6 +117,16 @@ async function migrate(pool) {
     console.log('Updated category constraint to include family.');
   } catch (e) {
     // Constraint may already be correct — that's fine
+  }
+
+  // Auto-migrate: add feedback_url column to events
+  const { rows: feedbackCol } = await pool.query(`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'events' AND column_name = 'feedback_url'
+  `);
+  if (feedbackCol.length === 0) {
+    await pool.query('ALTER TABLE events ADD COLUMN feedback_url TEXT');
+    console.log('Added feedback_url column to events table.');
   }
 
   console.log('Database migration complete.');
