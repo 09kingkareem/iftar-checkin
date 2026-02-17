@@ -522,11 +522,11 @@ function renderNav(user, activePage = 'registration', lang = 'en') {
   const L = (key) => t(lang, key);
 
   const tabs = [
-    { id: 'registration', label: L('nav.registration'), icon: '&#128203;' },
-    { id: 'event-details', label: L('nav.event_details'), icon: '&#9881;' },
-    { id: 'invitations', label: L('nav.invitations'), icon: '&#9993;' },
-    { id: 'reports', label: L('nav.reports'), icon: '&#128202;' },
-  ];
+    { id: 'registration', label: L('nav.registration'), icon: '&#128203;', adminOnly: false },
+    { id: 'event-details', label: L('nav.event_details'), icon: '&#9881;', adminOnly: true },
+    { id: 'invitations', label: L('nav.invitations'), icon: '&#9993;', adminOnly: true },
+    { id: 'reports', label: L('nav.reports'), icon: '&#128202;', adminOnly: true },
+  ].filter(tab => !tab.adminOnly || isAdmin);
 
   const isDashboard = ['registration', 'event-details', 'invitations', 'reports'].includes(activePage);
 
@@ -589,7 +589,6 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
     <!-- ══════════════════════════════════ -->
     <div id="tab-registration" class="tab-content tab-active">
 
-      ${isAdmin ? `
       <!-- Announcement Broadcast -->
       <div class="card">
         <h2>&#128227; ${L('announce.title')}</h2>
@@ -603,7 +602,6 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
           <button class="btn btn-gold" onclick="broadcastAnnouncement()">${L('btn.broadcast')}</button>
         </div>
       </div>
-      ` : ''}
 
       <!-- Stats Cards -->
       <div class="stats-grid">
@@ -698,7 +696,7 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
                 <th>${L('table.category')}</th>
                 <th>${L('table.table')}</th>
                 <th>${L('table.dietary')}</th>
-                <th>Paid</th>
+                ${isAdmin ? '<th>Paid</th>' : ''}
                 <th>${L('table.status')}</th>
                 <th>${L('table.time')}</th>
                 <th>${L('table.actions')}</th>
@@ -719,6 +717,7 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
       ` : ''}
     </div>
 
+    ${isAdmin ? `
     <!-- ══════════════════════════════════ -->
     <!-- TAB: Event Details                -->
     <!-- ══════════════════════════════════ -->
@@ -965,9 +964,11 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
       </div>
       ` : ''}
     </div>
+    ` : '<!-- admin-only tabs hidden for volunteers -->'}
 
   </div>
 
+  <script>window.__USER_ROLE__ = '${user.role}';</script>
   <script src="/dashboard.js"></script>
   <script src="/offline.js"></script>
   <script>

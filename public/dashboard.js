@@ -1,3 +1,7 @@
+// ── User Role ──
+const USER_ROLE = window.__USER_ROLE__ || 'volunteer';
+const IS_ADMIN = USER_ROLE === 'admin';
+
 // ── WebSocket Connection ──
 const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 const ws = new WebSocket(`${protocol}//${location.host}`);
@@ -56,8 +60,9 @@ async function refreshGuests(search = '') {
     const tbody = document.getElementById('guest-list');
     if (!tbody) return;
 
+    const colSpan = IS_ADMIN ? 8 : 7;
     tbody.innerHTML = guests.length === 0
-      ? '<tr><td colspan="8" class="text-center muted" style="padding:20px">No guests found</td></tr>'
+      ? `<tr><td colspan="${colSpan}" class="text-center muted" style="padding:20px">No guests found</td></tr>`
       : guests.map(g => `
         <tr>
           <td>
@@ -69,17 +74,17 @@ async function refreshGuests(search = '') {
           <td><span class="badge cat-${g.category || 'guest'}">${g.category || 'guest'}</span></td>
           <td>${esc(g.table_number || '-')}</td>
           <td>${esc(g.dietary_restrictions || '-')}</td>
-          <td>
+          ${IS_ADMIN ? `<td>
             <span class="badge ${g.paid ? 'badge-checked' : 'badge-pending'}" style="cursor:pointer" onclick="togglePaid(${g.id})" title="Click to toggle">
               ${g.paid ? '&#9989; Paid' : 'Unpaid'}
             </span>
-          </td>
+          </td>` : ''}
           <td><span class="badge ${g.checked_in ? 'badge-checked' : 'badge-pending'}">${g.checked_in ? 'Checked In' : 'Pending'}</span></td>
           <td>${g.checked_in_at ? new Date(g.checked_in_at).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) : '-'}</td>
           <td class="actions-cell">
             ${!g.checked_in ? `<button class="btn btn-sm btn-primary" onclick="manualCheckin(${g.id})">Check In</button>` : ''}
-            <button class="btn btn-sm btn-secondary" onclick="openEditModal(${g.id})">Edit</button>
-            <a href="/admin/ticket/${g.id}" class="btn btn-sm btn-secondary" target="_blank">Ticket</a>
+            ${IS_ADMIN ? `<button class="btn btn-sm btn-secondary" onclick="openEditModal(${g.id})">Edit</button>
+            <a href="/admin/ticket/${g.id}" class="btn btn-sm btn-secondary" target="_blank">Ticket</a>` : ''}
           </td>
         </tr>
       `).join('');

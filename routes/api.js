@@ -327,7 +327,6 @@ router.post('/api/webhook/ziina', async (req, res) => {
 // ── Announcements ──
 router.post('/api/announcement', requireAuth, async (req, res) => {
   const user = req.session.user;
-  if (user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
   const event = await db.getActiveEvent();
   if (!event) return res.status(400).json({ error: 'No active event' });
