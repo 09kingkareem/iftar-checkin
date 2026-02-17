@@ -724,28 +724,59 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
       <div class="card">
         <h2>${L('invite.preview')}</h2>
         <p class="muted" style="margin-bottom:16px">${L('invite.preview_desc')}</p>
-        <div style="background:#0a1628;border-radius:12px;padding:30px 20px;border:1px solid var(--border)">
-          <div style="max-width:400px;margin:0 auto;text-align:center">
-            <div style="margin-bottom:8px">${MOON_SVG(48)}</div>
-            <h3 style="color:#d4af37;margin:0 0 4px;font-size:1.1rem">${escapeHtml(event.name)}</h3>
-            <p style="color:#8899aa;font-size:0.8rem;margin:0 0 16px">You are cordially invited</p>
-            <div style="height:1px;background:linear-gradient(90deg,transparent,#d4af37,transparent);margin:0 40px 16px"></div>
-            <p style="color:#fff;font-size:1.3rem;font-weight:700;margin:0 0 12px">Guest Name</p>
-            <div style="display:inline-block;background:rgba(212,175,55,0.1);border:1px solid rgba(212,175,55,0.2);border-radius:8px;padding:12px 20px;margin-bottom:12px">
-              <span style="color:#d4af37;font-size:0.75rem;display:block">DATE</span>
-              <span style="color:#fff;font-size:0.9rem">${escapeHtml(event.event_date)}</span>
-              <span style="color:rgba(212,175,55,0.3);margin:0 8px">|</span>
-              <span style="color:#d4af37;font-size:0.75rem">TIME</span>
-              <span style="color:#fff;font-size:0.9rem">${escapeHtml(event.event_time)}</span>
-              <span style="color:rgba(212,175,55,0.3);margin:0 8px">|</span>
-              <span style="color:#d4af37;font-size:0.75rem">VENUE</span>
-              <span style="color:#fff;font-size:0.9rem">${escapeHtml(event.venue)}</span>
+        <div style="background:#0a1628;border-radius:12px;padding:0;border:2px solid #d4af37;overflow:hidden;max-width:480px;margin:0 auto">
+          <!-- Top gold bar -->
+          <div style="height:5px;background:linear-gradient(90deg,#b8942e,#d4af37,#f0d060,#d4af37,#b8942e)"></div>
+          <div style="background:linear-gradient(180deg,#0f1f3a 0%,#162d4a 50%,#0f1f3a 100%);padding:32px 24px">
+            <div style="text-align:center">
+              <!-- Moon + Header -->
+              <div style="font-size:2.4rem;margin-bottom:10px">&#127769;</div>
+              <h3 style="color:#d4af37;margin:0 0 4px;font-size:1.15rem;font-weight:700;letter-spacing:0.5px">${escapeHtml(event.name)}</h3>
+              <p style="color:#8899aa;font-size:0.78rem;margin:0 0 18px">${L('invite.cordially')}</p>
+
+              <!-- Gold divider -->
+              <div style="height:1px;background:linear-gradient(90deg,transparent,#d4af37,transparent);margin:0 40px 4px"></div>
+              <div style="color:#d4af37;font-size:6px;margin-bottom:18px">&#9670;</div>
+
+              <!-- Guest name -->
+              <p style="color:#8899aa;font-size:0.7rem;text-transform:uppercase;letter-spacing:2px;margin:0 0 6px">Dear Guest</p>
+              <p style="color:#fff;font-size:1.4rem;font-weight:700;margin:0 0 16px">Guest Name</p>
+
+              <!-- Event details box -->
+              <div style="display:inline-block;background:rgba(212,175,55,0.08);border:1px solid rgba(212,175,55,0.2);border-radius:10px;padding:16px 24px;margin-bottom:16px">
+                <span style="color:#d4af37;font-size:0.65rem;text-transform:uppercase;letter-spacing:1px">DATE</span>
+                <div style="color:#fff;font-size:0.95rem;font-weight:600;margin-bottom:6px">${escapeHtml(event.event_date)}</div>
+                <span style="color:#d4af37;font-size:0.65rem;text-transform:uppercase;letter-spacing:1px">TIME</span>
+                <div style="color:#fff;font-size:0.95rem;font-weight:600;margin-bottom:6px">${escapeHtml(event.event_time)}</div>
+                <span style="color:#d4af37;font-size:0.65rem;text-transform:uppercase;letter-spacing:1px">VENUE</span>
+                <div style="color:#fff;font-size:0.95rem;font-weight:600">${escapeHtml(event.venue)}</div>
+              </div>
+
+              <!-- Badge attached -->
+              <div style="background:rgba(46,204,113,0.12);border:1px solid rgba(46,204,113,0.25);border-radius:8px;padding:12px 16px;margin:0 auto 16px;max-width:300px">
+                <p style="color:#2ecc71;margin:0;font-size:0.82rem;font-weight:600">&#128206; Your invitation badge is attached</p>
+                <p style="color:#8899aa;font-size:0.7rem;margin:4px 0 0">Print it or have the QR code ready on your phone</p>
+              </div>
+
+              <!-- Divider -->
+              <div style="height:1px;background:linear-gradient(90deg,transparent,rgba(212,175,55,0.3),transparent);margin:0 30px 16px"></div>
+
+              <!-- Ziina payment -->
+              <div style="background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.2);border-radius:10px;padding:16px 20px;margin:0 auto 16px;max-width:320px">
+                <p style="color:#bcc5d0;font-size:0.82rem;margin:0 0 10px">Complete your registration by paying below:</p>
+                <div style="display:inline-block;background:linear-gradient(135deg,#7C3AED,#5B21B6);border-radius:6px;padding:10px 28px;margin-bottom:8px">
+                  <span style="color:#fff;font-size:0.9rem;font-weight:700">Pay with Ziina</span>
+                </div>
+                <p style="color:#6b7a8d;font-size:0.65rem;margin:0">&#128274; Secure payment powered by <span style="color:#7C3AED;font-weight:700">ziina</span></p>
+              </div>
+
+              <!-- Footer -->
+              <p style="color:#8899aa;font-size:0.8rem;margin:0 0 4px">We look forward to seeing you!</p>
+              <p style="color:#d4af37;font-size:0.9rem;font-weight:600;margin:0">${L('ramadan_kareem')} &#127769;</p>
             </div>
-            <div style="background:rgba(46,204,113,0.15);border:1px solid rgba(46,204,113,0.3);border-radius:8px;padding:10px;margin-top:8px">
-              <p style="color:#2ecc71;margin:0;font-size:0.85rem">&#128206; Badge PDF attached</p>
-            </div>
-            <p style="color:#d4af37;font-size:0.9rem;margin:16px 0 0">Ramadan Kareem &#127769;</p>
           </div>
+          <!-- Bottom gold bar -->
+          <div style="height:3px;background:linear-gradient(90deg,#b8942e,#d4af37,#f0d060,#d4af37,#b8942e)"></div>
         </div>
       </div>
     </div>
