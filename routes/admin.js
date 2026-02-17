@@ -331,98 +331,37 @@ router.get('/kiosk', (req, res) => {
 
 // ── Render Functions ──
 
-function renderNav(user) {
-  const adminLinks = user.role === 'admin' ? `
-    <a href="/admin/users" class="nav-link">Users</a>
-    <a href="/admin/export-csv" class="nav-link">CSV Export</a>
+function renderNav(user, activeTab = 'registration') {
+  const isAdmin = user.role === 'admin';
+
+  const tabs = [
+    { id: 'registration', label: 'Registration', icon: '&#128203;' },
+    { id: 'event-details', label: 'Event Details', icon: '&#9881;' },
+    { id: 'invitations', label: 'Invitations', icon: '&#9993;' },
+  ];
+
+  const tabLinks = tabs.map(t =>
+    `<a href="#" class="nav-tab ${activeTab === t.id ? 'nav-tab-active' : ''}" onclick="switchTab('${t.id}')" data-tab="${t.id}">${t.icon} ${t.label}</a>`
+  ).join('');
+
+  const adminLinks = isAdmin ? `
+    <a href="/admin/users" class="nav-tab">&#128101; Users</a>
   ` : '';
 
   return `<nav class="navbar">
     <div class="nav-brand">&#9770; Iftar Check-in</div>
     <div class="nav-links">
-      <a href="/admin" class="nav-link">Dashboard</a>
+      ${tabLinks}
       ${adminLinks}
-      <a href="/kiosk" class="nav-link" target="_blank">Kiosk</a>
+      <a href="/kiosk" class="nav-tab" target="_blank">&#128247; Kiosk</a>
       <span class="nav-user">${escapeHtml(user.display_name)} (${user.role})</span>
-      <a href="/logout" class="nav-link nav-logout">Logout</a>
+      <a href="/logout" class="nav-tab nav-logout">Logout</a>
     </div>
   </nav>`;
 }
 
 function renderDashboard(event, user) {
   const isAdmin = user.role === 'admin';
-
-  const addGuestSection = isAdmin ? `
-    <div class="card">
-      <h2>Add Guest</h2>
-      <form method="POST" action="/admin/guest/add" class="guest-add-form">
-        <div class="form-row">
-          <input type="text" name="name" placeholder="Guest Name *" required>
-          <select name="category" onchange="document.getElementById('family-size-wrap').style.display=this.value==='family'?'':'none'">
-            <option value="guest">Guest</option>
-            <option value="student">Student</option>
-            <option value="parent">Parent</option>
-            <option value="teacher">Teacher</option>
-            <option value="vip">VIP</option>
-            <option value="family">Family</option>
-          </select>
-          <span id="family-size-wrap" style="display:none">
-            <input type="number" name="family_size" min="1" value="2" placeholder="Members" style="width:80px">
-          </span>
-          <input type="text" name="table_number" placeholder="Table #">
-        </div>
-        <div class="form-row" style="margin-top:10px">
-          <input type="text" name="dietary" placeholder="Dietary restrictions">
-          <input type="text" name="phone" placeholder="Phone">
-          <input type="text" name="email" placeholder="Email">
-          <button type="submit" class="btn btn-primary">Add Guest</button>
-        </div>
-      </form>
-    </div>` : '';
-
-  const importSection = isAdmin ? `
-    <div class="card">
-      <h2>Bulk Import</h2>
-      <form method="POST" action="/admin/import" enctype="multipart/form-data">
-        <textarea name="names" placeholder="Paste guest names, one per line..." rows="3"></textarea>
-        <p class="muted" style="font-size:0.8rem;margin:6px 0">Or upload a CSV with columns: name, category, dietary, table, phone, email</p>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary">Import Names</button>
-          <label class="btn btn-secondary file-upload">
-            Upload CSV
-            <input type="file" name="csv" accept=".csv,.txt" hidden onchange="this.form.submit()">
-          </label>
-          <a href="/admin/export-pdf" class="btn btn-gold">Download Tickets PDF</a>
-        </div>
-      </form>
-      ${process.env.N8N_WEBHOOK_URL ? `
-        <form method="POST" action="/admin/send-invitations" style="margin-top:12px">
-          <button type="submit" class="btn btn-gold" onclick="return confirm('Send email invitations to all guests with email addresses?')">Send Invitations</button>
-        </form>
-      ` : ''}
-    </div>` : '';
-
-  const eventSettings = isAdmin ? `
-    <div class="card">
-      <h2>Event Settings</h2>
-      <form method="POST" action="/admin/event" class="event-form">
-        <div class="form-row">
-          <input type="text" name="event_name" value="${escapeHtml(event.name)}" placeholder="Event Name">
-          <input type="text" name="event_date" value="${escapeHtml(event.event_date)}" placeholder="Date">
-          <input type="text" name="event_time" value="${escapeHtml(event.event_time)}" placeholder="Time">
-          <input type="text" name="venue" value="${escapeHtml(event.venue)}" placeholder="Venue">
-          <button type="submit" class="btn btn-primary">Save</button>
-        </div>
-      </form>
-    </div>` : '';
-
-  const dangerZone = isAdmin ? `
-    <div class="card card-danger">
-      <h2>Danger Zone</h2>
-      <form method="POST" action="/admin/reset" id="reset-form">
-        <button type="submit" class="btn btn-danger">Clear All Guests</button>
-      </form>
-    </div>` : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -433,73 +372,232 @@ function renderDashboard(event, user) {
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  ${renderNav(user)}
+  ${renderNav(user, 'registration')}
   <div class="container">
     <h1>${escapeHtml(event.name)}</h1>
     <p class="event-info">${escapeHtml(event.event_date)} at ${escapeHtml(event.event_time)} — ${escapeHtml(event.venue)}</p>
 
-    <!-- Stats Cards -->
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-number" id="stat-total">-</div>
-        <div class="stat-label">Total Guests</div>
-      </div>
-      <div class="stat-card stat-checked">
-        <div class="stat-number" id="stat-checked">-</div>
-        <div class="stat-label">Checked In</div>
-      </div>
-      <div class="stat-card stat-pending">
-        <div class="stat-number" id="stat-pending">-</div>
-        <div class="stat-label">Pending</div>
-      </div>
-      <div class="stat-card stat-percent">
-        <div class="stat-number" id="stat-percent">-</div>
-        <div class="stat-label">Progress</div>
-        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
-      </div>
-    </div>
+    <!-- ══════════════════════════════════ -->
+    <!-- TAB: Registration                 -->
+    <!-- ══════════════════════════════════ -->
+    <div id="tab-registration" class="tab-content tab-active">
 
-    <!-- Activity Feed + Chart -->
-    <div class="dashboard-grid">
-      <div class="card">
-        <h2>Live Activity</h2>
-        <div id="activity-feed" class="activity-feed">
-          <p class="muted">Waiting for activity...</p>
+      <!-- Stats Cards -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-number" id="stat-total">-</div>
+          <div class="stat-label">Total Guests</div>
+        </div>
+        <div class="stat-card stat-checked">
+          <div class="stat-number" id="stat-checked">-</div>
+          <div class="stat-label">Checked In</div>
+        </div>
+        <div class="stat-card stat-pending">
+          <div class="stat-number" id="stat-pending">-</div>
+          <div class="stat-label">Pending</div>
+        </div>
+        <div class="stat-card stat-percent">
+          <div class="stat-number" id="stat-percent">-</div>
+          <div class="stat-label">Progress</div>
+          <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
         </div>
       </div>
+
+      <!-- Activity Feed + Chart -->
+      <div class="dashboard-grid">
+        <div class="card">
+          <h2>Live Activity</h2>
+          <div id="activity-feed" class="activity-feed">
+            <p class="muted">Waiting for activity...</p>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Check-in Timeline</h2>
+          <canvas id="timeline-chart" width="400" height="200"></canvas>
+        </div>
+      </div>
+
+      ${isAdmin ? `
       <div class="card">
-        <h2>Check-in Timeline</h2>
-        <canvas id="timeline-chart" width="400" height="200"></canvas>
+        <h2>Add Guest</h2>
+        <form method="POST" action="/admin/guest/add" class="guest-add-form">
+          <div class="form-row">
+            <input type="text" name="name" placeholder="Guest Name *" required>
+            <select name="category" onchange="document.getElementById('family-size-wrap').style.display=this.value==='family'?'':'none'">
+              <option value="guest">Guest</option>
+              <option value="student">Student</option>
+              <option value="parent">Parent</option>
+              <option value="teacher">Teacher</option>
+              <option value="vip">VIP</option>
+              <option value="family">Family</option>
+            </select>
+            <span id="family-size-wrap" style="display:none">
+              <input type="number" name="family_size" min="1" value="2" placeholder="Members" style="width:80px">
+            </span>
+            <input type="text" name="table_number" placeholder="Table #">
+          </div>
+          <div class="form-row" style="margin-top:10px">
+            <input type="text" name="dietary" placeholder="Dietary restrictions">
+            <input type="text" name="phone" placeholder="Phone">
+            <input type="text" name="email" placeholder="Email">
+            <button type="submit" class="btn btn-primary">Add Guest</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Bulk Import</h2>
+        <form method="POST" action="/admin/import" enctype="multipart/form-data">
+          <textarea name="names" placeholder="Paste guest names, one per line..." rows="3"></textarea>
+          <p class="muted" style="font-size:0.8rem;margin:6px 0">Or upload a CSV with columns: name, category, dietary, table, phone, email</p>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Import Names</button>
+            <label class="btn btn-secondary file-upload">
+              Upload CSV
+              <input type="file" name="csv" accept=".csv,.txt" hidden onchange="this.form.submit()">
+            </label>
+            <a href="/admin/export-pdf" class="btn btn-gold">Download Tickets PDF</a>
+            <a href="/admin/export-csv" class="btn btn-secondary">Export CSV</a>
+          </div>
+        </form>
+      </div>
+      ` : ''}
+
+      <!-- Guest List -->
+      <div class="card">
+        <h2>Guest List</h2>
+        <input type="text" class="search-box" id="search" placeholder="Search guests...">
+        <div class="table-wrapper">
+          <table class="guest-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Category</th>
+                <th>Table</th>
+                <th>Dietary</th>
+                <th>Status</th>
+                <th>Time</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="guest-list"></tbody>
+          </table>
+        </div>
+      </div>
+
+      ${isAdmin ? `
+      <div class="card card-danger">
+        <h2>Danger Zone</h2>
+        <form method="POST" action="/admin/reset" id="reset-form">
+          <button type="submit" class="btn btn-danger">Clear All Guests</button>
+        </form>
+      </div>
+      ` : ''}
+    </div>
+
+    <!-- ══════════════════════════════════ -->
+    <!-- TAB: Event Details                -->
+    <!-- ══════════════════════════════════ -->
+    <div id="tab-event-details" class="tab-content" style="display:none">
+      <div class="card">
+        <h2>Event Information</h2>
+        <div class="event-details-grid">
+          <div class="event-detail-item">
+            <span class="event-detail-label">Event Name</span>
+            <span class="event-detail-value">${escapeHtml(event.name)}</span>
+          </div>
+          <div class="event-detail-item">
+            <span class="event-detail-label">Date</span>
+            <span class="event-detail-value">${escapeHtml(event.event_date)}</span>
+          </div>
+          <div class="event-detail-item">
+            <span class="event-detail-label">Time</span>
+            <span class="event-detail-value">${escapeHtml(event.event_time)}</span>
+          </div>
+          <div class="event-detail-item">
+            <span class="event-detail-label">Venue</span>
+            <span class="event-detail-value">${escapeHtml(event.venue)}</span>
+          </div>
+        </div>
+      </div>
+
+      ${isAdmin ? `
+      <div class="card">
+        <h2>Edit Event Settings</h2>
+        <form method="POST" action="/admin/event" class="event-form">
+          <div class="form-row">
+            <input type="text" name="event_name" value="${escapeHtml(event.name)}" placeholder="Event Name">
+            <input type="text" name="event_date" value="${escapeHtml(event.event_date)}" placeholder="Date">
+          </div>
+          <div class="form-row" style="margin-top:10px">
+            <input type="text" name="event_time" value="${escapeHtml(event.event_time)}" placeholder="Time">
+            <input type="text" name="venue" value="${escapeHtml(event.venue)}" placeholder="Venue">
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+          </div>
+        </form>
+      </div>
+      ` : ''}
+    </div>
+
+    <!-- ══════════════════════════════════ -->
+    <!-- TAB: Invitations                  -->
+    <!-- ══════════════════════════════════ -->
+    <div id="tab-invitations" class="tab-content" style="display:none">
+      <div class="card">
+        <h2>Email Invitations</h2>
+        <p class="muted" style="margin-bottom:16px">Send styled invitation emails with PDF badges attached to all guests who have an email address.</p>
+
+        ${process.env.N8N_WEBHOOK_URL ? `
+        <div class="invitation-actions">
+          <form method="POST" action="/admin/send-invitations">
+            <button type="submit" class="btn btn-gold" onclick="return confirm('Send email invitations to all guests with email addresses?')">Send Invitations to All</button>
+          </form>
+          <p class="muted" style="font-size:0.8rem;margin-top:8px">This will trigger the n8n workflow to email each guest their personalized invitation with badge PDF.</p>
+        </div>
+        ` : `
+        <div style="background:rgba(243,156,18,0.1);border:1px solid rgba(243,156,18,0.3);border-radius:8px;padding:16px;margin-bottom:16px">
+          <p style="color:#f39c12;margin:0;font-size:0.9rem">n8n webhook not configured. Add <strong>N8N_WEBHOOK_URL</strong> to your environment variables to enable email invitations.</p>
+        </div>
+        `}
+      </div>
+
+      <div class="card">
+        <h2>Download Tickets</h2>
+        <p class="muted" style="margin-bottom:16px">Download all guest badges as a single PDF for printing.</p>
+        <a href="/admin/export-pdf" class="btn btn-gold">Download All Tickets PDF</a>
+      </div>
+
+      <div class="card">
+        <h2>Invitation Preview</h2>
+        <p class="muted" style="margin-bottom:16px">This is how the email invitation looks to your guests:</p>
+        <div style="background:#0a1628;border-radius:12px;padding:30px 20px;border:1px solid var(--border)">
+          <div style="max-width:400px;margin:0 auto;text-align:center">
+            <div style="font-size:36px;margin-bottom:8px">&#9770;</div>
+            <h3 style="color:#d4af37;margin:0 0 4px;font-size:1.1rem">${escapeHtml(event.name)}</h3>
+            <p style="color:#8899aa;font-size:0.8rem;margin:0 0 16px">You are cordially invited</p>
+            <div style="height:1px;background:linear-gradient(90deg,transparent,#d4af37,transparent);margin:0 40px 16px"></div>
+            <p style="color:#fff;font-size:1.3rem;font-weight:700;margin:0 0 12px">Guest Name</p>
+            <div style="display:inline-block;background:rgba(212,175,55,0.1);border:1px solid rgba(212,175,55,0.2);border-radius:8px;padding:12px 20px;margin-bottom:12px">
+              <span style="color:#d4af37;font-size:0.75rem;display:block">DATE</span>
+              <span style="color:#fff;font-size:0.9rem">${escapeHtml(event.event_date)}</span>
+              <span style="color:rgba(212,175,55,0.3);margin:0 8px">|</span>
+              <span style="color:#d4af37;font-size:0.75rem">TIME</span>
+              <span style="color:#fff;font-size:0.9rem">${escapeHtml(event.event_time)}</span>
+              <span style="color:rgba(212,175,55,0.3);margin:0 8px">|</span>
+              <span style="color:#d4af37;font-size:0.75rem">VENUE</span>
+              <span style="color:#fff;font-size:0.9rem">${escapeHtml(event.venue)}</span>
+            </div>
+            <div style="background:rgba(46,204,113,0.15);border:1px solid rgba(46,204,113,0.3);border-radius:8px;padding:10px;margin-top:8px">
+              <p style="color:#2ecc71;margin:0;font-size:0.85rem">&#128206; Badge PDF attached</p>
+            </div>
+            <p style="color:#d4af37;font-size:0.9rem;margin:16px 0 0">Ramadan Kareem &#127769;</p>
+          </div>
+        </div>
       </div>
     </div>
 
-    ${addGuestSection}
-    ${importSection}
-    ${eventSettings}
-
-    <!-- Guest List -->
-    <div class="card">
-      <h2>Guest List</h2>
-      <input type="text" class="search-box" id="search" placeholder="Search guests...">
-      <div class="table-wrapper">
-        <table class="guest-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Category</th>
-              <th>Table</th>
-              <th>Dietary</th>
-              <th>Status</th>
-              <th>Time</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="guest-list"></tbody>
-        </table>
-      </div>
-    </div>
-
-    ${dangerZone}
   </div>
 
   <script src="/dashboard.js"></script>
@@ -507,6 +605,35 @@ function renderDashboard(event, user) {
     document.getElementById('reset-form')?.addEventListener('submit', function(e) {
       if (!confirm('This will DELETE ALL guests. Are you sure?')) e.preventDefault();
     });
+
+    function switchTab(tabId) {
+      // Hide all tabs
+      document.querySelectorAll('.tab-content').forEach(el => {
+        el.style.display = 'none';
+        el.classList.remove('tab-active');
+      });
+      // Deactivate all nav tabs
+      document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('nav-tab-active'));
+      // Show selected tab
+      const tab = document.getElementById('tab-' + tabId);
+      if (tab) {
+        tab.style.display = 'block';
+        tab.classList.add('tab-active');
+      }
+      // Activate nav tab
+      const navTab = document.querySelector('.nav-tab[data-tab="' + tabId + '"]');
+      if (navTab) navTab.classList.add('nav-tab-active');
+      // Save to URL hash
+      history.replaceState(null, '', '#' + tabId);
+    }
+
+    // Restore tab from URL hash
+    (function() {
+      const hash = location.hash.replace('#', '');
+      if (hash && document.getElementById('tab-' + hash)) {
+        switchTab(hash);
+      }
+    })();
   </script>
 </body>
 </html>`;
