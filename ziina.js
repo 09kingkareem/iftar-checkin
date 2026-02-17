@@ -10,8 +10,10 @@ function getHeaders() {
 }
 
 async function createPaymentIntent({ amount, currency, message, successUrl, cancelUrl }) {
+  // Ziina expects amounts in base currency units (fils for AED: 1 AED = 100 fils)
+  const amountInFils = Math.round(Number(amount) * 100);
   const body = {
-    amount: Number(amount),
+    amount: amountInFils,
     currency_code: currency || process.env.ZIINA_CURRENCY || 'AED',
     message: message || 'Iftar Payment',
   };
