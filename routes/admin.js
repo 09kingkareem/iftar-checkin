@@ -331,7 +331,7 @@ router.get('/kiosk', (req, res) => {
 
 // ── Render Functions ──
 
-function renderNav(user, activeTab = 'registration') {
+function renderNav(user, activePage = 'registration') {
   const isAdmin = user.role === 'admin';
 
   const tabs = [
@@ -340,12 +340,18 @@ function renderNav(user, activeTab = 'registration') {
     { id: 'invitations', label: 'Invitations', icon: '&#9993;' },
   ];
 
-  const tabLinks = tabs.map(t =>
-    `<a href="#" class="nav-tab ${activeTab === t.id ? 'nav-tab-active' : ''}" onclick="switchTab('${t.id}')" data-tab="${t.id}">${t.icon} ${t.label}</a>`
-  ).join('');
+  const isDashboard = ['registration', 'event-details', 'invitations'].includes(activePage);
+
+  const tabLinks = tabs.map(t => {
+    const isActive = activePage === t.id;
+    if (isDashboard) {
+      return `<a href="#" class="nav-tab ${isActive ? 'nav-tab-active' : ''}" onclick="switchTab('${t.id}')" data-tab="${t.id}">${t.icon} ${t.label}</a>`;
+    }
+    return `<a href="/admin#${t.id}" class="nav-tab">${t.icon} ${t.label}</a>`;
+  }).join('');
 
   const adminLinks = isAdmin ? `
-    <a href="/admin/users" class="nav-tab">&#128101; Users</a>
+    <a href="/admin/users" class="nav-tab ${activePage === 'users' ? 'nav-tab-active' : ''}">&#128101; Users</a>
   ` : '';
 
   return `<nav class="navbar">
@@ -668,7 +674,7 @@ function renderUsersPage(users, currentUser) {
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  ${renderNav(currentUser)}
+  ${renderNav(currentUser, 'users')}
   <div class="container">
     <h1>User Management</h1>
 
