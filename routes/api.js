@@ -227,10 +227,15 @@ router.post('/api/guests/:id/paid', requireAuth, async (req, res) => {
 });
 
 // ── n8n: Get paid guests with emails (for sending badges) ──
+// Returns only paid guests who haven't received badges yet, then marks them as sent
 router.get('/api/guests-paid', requireApiKey, async (req, res) => {
   const event = await db.getActiveEvent();
   if (!event) return res.json([]);
   const guests = await db.getPaidGuestsWithEmail(event.id);
+  // Mark these guests as badge_sent so subsequent calls won't include them
+  if (guests.length > 0) {
+    await db.markBadgesSent(guests.map(g => g.id));
+  }
   res.json(guests);
 });
 
@@ -289,7 +294,7 @@ router.post('/api/webhook/ziina', async (req, res) => {
         });
       }
 
-      // Auto-trigger badge send via n8n
+      // Auto-trigger badge send via n8n and mark as sent
       const webhookUrl = process.env.N8N_WEBHOOK_URL;
       if (webhookUrl && guest.email) {
         const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
@@ -307,6 +312,7 @@ router.post('/api/webhook/ziina', async (req, res) => {
               event: event ? { name: event.name, date: event.event_date, time: event.event_time, venue: event.venue } : null,
             }),
           });
+          await db.markBadgesSent([guest.id]);
           console.log(`Auto-triggered badge email for ${guest.name}`);
         } catch (e) {
           console.error('Failed to trigger badge email:', e.message);

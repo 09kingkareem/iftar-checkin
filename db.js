@@ -245,10 +245,18 @@ async function markGuestUnpaid(id) {
 
 async function getPaidGuestsWithEmail(eventId) {
   const { rows } = await pool.query(
-    "SELECT * FROM guests WHERE event_id = $1 AND paid = true AND email IS NOT NULL AND email != '' ORDER BY name",
+    "SELECT * FROM guests WHERE event_id = $1 AND paid = true AND badge_sent = false AND email IS NOT NULL AND email != '' ORDER BY name",
     [eventId]
   );
   return rows;
+}
+
+async function markBadgesSent(guestIds) {
+  if (!guestIds.length) return;
+  await pool.query(
+    'UPDATE guests SET badge_sent = true, badge_sent_at = NOW() WHERE id = ANY($1)',
+    [guestIds]
+  );
 }
 
 // ── Announcements ──
@@ -301,7 +309,7 @@ module.exports = {
   addGuests, addGuestsBulk, addSingleGuest, getAllGuests, getGuestByToken, getGuestById,
   checkInGuest, incrementScanCount, searchGuests, getStats, updateGuest, deleteGuest, deleteAllGuests,
   logActivity, getRecentActivity, getCheckinTimeline,
-  markGuestPaid, markGuestUnpaid, getPaidGuestsWithEmail,
+  markGuestPaid, markGuestUnpaid, getPaidGuestsWithEmail, markBadgesSent,
   setGuestPayment, getGuestByPaymentIntent,
   createAnnouncement, getActiveAnnouncement, dismissAnnouncement,
 };

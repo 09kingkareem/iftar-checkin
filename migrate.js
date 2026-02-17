@@ -150,6 +150,17 @@ async function migrate(pool) {
     console.log('Added payment_intent_id and payment_url columns to guests table.');
   }
 
+  // Auto-migrate: add badge_sent tracking columns to guests
+  const { rows: badgeCol } = await pool.query(`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'guests' AND column_name = 'badge_sent'
+  `);
+  if (badgeCol.length === 0) {
+    await pool.query('ALTER TABLE guests ADD COLUMN badge_sent BOOLEAN DEFAULT false');
+    await pool.query('ALTER TABLE guests ADD COLUMN badge_sent_at TIMESTAMPTZ');
+    console.log('Added badge_sent and badge_sent_at columns to guests table.');
+  }
+
   console.log('Database migration complete.');
 }
 

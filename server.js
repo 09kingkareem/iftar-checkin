@@ -13,6 +13,9 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
 // ── Middleware ──
+if (process.env.DATABASE_URL?.includes('render.com')) {
+  app.set('trust proxy', 1);
+}
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -31,6 +34,7 @@ const sessionMiddleware = session({
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     httpOnly: true,
     sameSite: 'lax',
+    secure: !!process.env.DATABASE_URL?.includes('render.com'),
   },
 });
 app.use(sessionMiddleware);

@@ -318,6 +318,10 @@ router.post('/admin/send-badges', requireAdmin, async (req, res) => {
   const event = await db.getActiveEvent();
   if (!event) return res.redirect('/admin#invitations');
 
+  // Get paid guests who haven't received badges yet
+  const pendingGuests = await db.getPaidGuestsWithEmail(event.id);
+  if (pendingGuests.length === 0) return res.redirect('/admin#invitations');
+
   const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
   try {
     await fetch(webhookUrl, {
@@ -330,13 +334,14 @@ router.post('/admin/send-badges', requireAdmin, async (req, res) => {
         event: { name: event.name, date: event.event_date, time: event.event_time, venue: event.venue },
       }),
     });
+    // Note: badges are marked as sent when n8n fetches /api/guests-paid
   } catch (e) {
     console.error('Failed to trigger n8n badge webhook:', e.message);
   }
 
   await db.logActivity(event.id, 'send_badges', {
     userId: req.session.user.id,
-    details: `${req.session.user.display_name} triggered badge emails to paid guests via n8n`,
+    details: `${req.session.user.display_name} triggered badges for ${pendingGuests.length} paid guests via n8n`,
   });
 
   res.redirect('/admin#invitations');
