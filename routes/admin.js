@@ -6,6 +6,7 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { generatePDF, generateSingleTicket } = require('../generate-pdf');
 const { generateReport } = require('../generate-report');
 const { t } = require('../i18n');
+const ziina = require('../ziina');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -253,17 +254,45 @@ router.post('/admin/checkin/:id', requireAuth, async (req, res) => {
 // ── Send Invitations via n8n ──
 router.post('/admin/send-invitations', requireAdmin, async (req, res) => {
   const webhookUrl = process.env.N8N_WEBHOOK_URL;
-  if (!webhookUrl) return res.redirect('/admin');
+  if (!webhookUrl) return res.redirect('/admin#invitations');
 
   const event = await db.getActiveEvent();
-  if (!event) return res.redirect('/admin');
+  if (!event) return res.redirect('/admin#invitations');
 
   const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+
+  // Create Ziina payment links per guest if API key is configured
+  if (process.env.ZIINA_API_KEY) {
+    const guests = await db.getAllGuests(event.id);
+    const guestsWithEmail = guests.filter(g => g.email && g.email.trim() && !g.payment_url);
+    const amount = parseInt(process.env.ZIINA_AMOUNT) || 50;
+    const currency = process.env.ZIINA_CURRENCY || 'AED';
+    let created = 0;
+
+    for (const guest of guestsWithEmail) {
+      try {
+        const payment = await ziina.createPaymentIntent({
+          amount,
+          currency,
+          message: `Iftar — ${guest.name}`,
+          successUrl: `${baseUrl}/payment-success/${guest.token}`,
+          cancelUrl: `${baseUrl}/payment-cancelled`,
+        });
+        await db.setGuestPayment(guest.id, payment.id, payment.redirect_url);
+        created++;
+      } catch (e) {
+        console.error(`Failed to create Ziina payment for ${guest.name}:`, e.message);
+      }
+    }
+    console.log(`Created ${created} Ziina payment links for ${guestsWithEmail.length} guests`);
+  }
+
   try {
     await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        action: 'send_invitations',
         app_base_url: baseUrl,
         api_key: process.env.N8N_API_KEY,
         event: { name: event.name, date: event.event_date, time: event.event_time, venue: event.venue },
@@ -278,7 +307,7 @@ router.post('/admin/send-invitations', requireAdmin, async (req, res) => {
     details: `${req.session.user.display_name} triggered email invitations via n8n`,
   });
 
-  res.redirect('/admin');
+  res.redirect('/admin#invitations');
 });
 
 // ── Send Badges to Paid Guests via n8n ──
@@ -311,6 +340,26 @@ router.post('/admin/send-badges', requireAdmin, async (req, res) => {
   });
 
   res.redirect('/admin#invitations');
+});
+
+// ── Ziina Webhook Registration ──
+router.post('/admin/ziina-setup', requireAdmin, async (req, res) => {
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  const webhookUrl = `${baseUrl}/api/webhook/ziina`;
+  const secret = process.env.ZIINA_WEBHOOK_SECRET || null;
+
+  try {
+    await ziina.registerWebhook(webhookUrl, secret);
+    await db.logActivity(null, 'ziina_setup', {
+      userId: req.session.user.id,
+      details: `${req.session.user.display_name} registered Ziina webhook: ${webhookUrl}`,
+    });
+    console.log('Ziina webhook registered:', webhookUrl);
+  } catch (e) {
+    console.error('Failed to register Ziina webhook:', e.message);
+  }
+
+  res.redirect('/admin#event-details');
 });
 
 // ── Send Feedback Survey via n8n ──
@@ -712,6 +761,38 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
         </form>
       </div>
       ` : ''}
+
+      ${isAdmin ? `
+      <div class="card">
+        <h2>&#128179; Ziina Payment Gateway</h2>
+        <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:16px">
+          <div style="flex:1;min-width:200px;background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.2);border-radius:8px;padding:16px">
+            <p style="color:#8899aa;font-size:0.8rem;margin:0 0 4px">API Key</p>
+            <p style="color:${process.env.ZIINA_API_KEY ? '#2ecc71' : '#e74c3c'};font-weight:600;margin:0;font-size:0.95rem">
+              ${process.env.ZIINA_API_KEY ? '&#9989; Configured' : '&#10060; Not configured'}
+            </p>
+          </div>
+          <div style="flex:1;min-width:200px;background:rgba(212,175,55,0.06);border:1px solid rgba(212,175,55,0.2);border-radius:8px;padding:16px">
+            <p style="color:#8899aa;font-size:0.8rem;margin:0 0 4px">Payment Amount</p>
+            <p style="color:#d4af37;font-weight:600;margin:0;font-size:0.95rem">${process.env.ZIINA_AMOUNT || '50'} ${process.env.ZIINA_CURRENCY || 'AED'}</p>
+          </div>
+          <div style="flex:1;min-width:200px;background:rgba(46,204,113,0.06);border:1px solid rgba(46,204,113,0.2);border-radius:8px;padding:16px">
+            <p style="color:#8899aa;font-size:0.8rem;margin:0 0 4px">Test Mode</p>
+            <p style="color:${process.env.ZIINA_TEST_MODE === 'true' ? '#f39c12' : '#2ecc71'};font-weight:600;margin:0;font-size:0.95rem">
+              ${process.env.ZIINA_TEST_MODE === 'true' ? '&#9888; Test Mode' : 'Live Mode'}
+            </p>
+          </div>
+        </div>
+        ${process.env.ZIINA_API_KEY ? `
+        <p class="muted" style="font-size:0.85rem;margin-bottom:12px">Register the webhook so Ziina notifies your server when guests pay. Only needs to be done once.</p>
+        <form method="POST" action="/admin/ziina-setup">
+          <button type="submit" class="btn btn-primary" onclick="return confirm('Register Ziina webhook for payment notifications?')" style="background:linear-gradient(135deg,#7C3AED,#5B21B6)">Register Ziina Webhook</button>
+        </form>
+        ` : `
+        <p style="color:#f39c12;font-size:0.85rem;margin:0">Add <strong>ZIINA_API_KEY</strong> to your environment variables to enable automatic payment links.</p>
+        `}
+      </div>
+      ` : ''}
     </div>
 
     <!-- ══════════════════════════════════ -->
@@ -766,7 +847,8 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
       <!-- Invitation Email Preview (payment only, no badge) -->
       <div class="card">
         <h2>&#9993; Invitation Email Preview</h2>
-        <p class="muted" style="margin-bottom:16px">This is what guests receive when you click "Send Invitations" — payment link only, no badge.</p>
+        <p class="muted" style="margin-bottom:16px">This is what guests receive when you click "Send Invitations" — unique Ziina payment link per guest, no badge.</p>
+        ${process.env.ZIINA_API_KEY ? '<p style="color:#2ecc71;font-size:0.85rem;margin-bottom:12px">&#9989; Ziina links will be auto-generated per guest when you send invitations.</p>' : '<p style="color:#f39c12;font-size:0.85rem;margin-bottom:12px">&#9888; Set ZIINA_API_KEY to auto-generate unique payment links per guest.</p>'}
         <div style="background:#0a1628;border-radius:12px;padding:0;border:2px solid #d4af37;overflow:hidden;max-width:480px;margin:0 auto">
           <div style="height:5px;background:linear-gradient(90deg,#b8942e,#d4af37,#f0d060,#d4af37,#b8942e)"></div>
           <div style="background:linear-gradient(180deg,#0f1f3a 0%,#162d4a 50%,#0f1f3a 100%);padding:32px 24px">

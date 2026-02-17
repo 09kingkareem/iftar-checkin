@@ -277,6 +277,22 @@ async function dismissAnnouncement(id) {
   await pool.query('UPDATE announcements SET dismissed_at = NOW() WHERE id = $1', [id]);
 }
 
+// ── Ziina Payment ──
+async function setGuestPayment(guestId, paymentIntentId, paymentUrl) {
+  await pool.query(
+    'UPDATE guests SET payment_intent_id = $1, payment_url = $2 WHERE id = $3',
+    [paymentIntentId, paymentUrl, guestId]
+  );
+}
+
+async function getGuestByPaymentIntent(paymentIntentId) {
+  const { rows } = await pool.query(
+    'SELECT * FROM guests WHERE payment_intent_id = $1',
+    [paymentIntentId]
+  );
+  return rows[0] || null;
+}
+
 module.exports = {
   pool,
   init,
@@ -286,5 +302,6 @@ module.exports = {
   checkInGuest, incrementScanCount, searchGuests, getStats, updateGuest, deleteGuest, deleteAllGuests,
   logActivity, getRecentActivity, getCheckinTimeline,
   markGuestPaid, markGuestUnpaid, getPaidGuestsWithEmail,
+  setGuestPayment, getGuestByPaymentIntent,
   createAnnouncement, getActiveAnnouncement, dismissAnnouncement,
 };

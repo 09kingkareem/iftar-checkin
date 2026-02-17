@@ -139,6 +139,17 @@ async function migrate(pool) {
     console.log('Added paid column to guests table.');
   }
 
+  // Auto-migrate: add Ziina payment columns to guests
+  const { rows: paymentCol } = await pool.query(`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'guests' AND column_name = 'payment_intent_id'
+  `);
+  if (paymentCol.length === 0) {
+    await pool.query('ALTER TABLE guests ADD COLUMN payment_intent_id TEXT');
+    await pool.query('ALTER TABLE guests ADD COLUMN payment_url TEXT');
+    console.log('Added payment_intent_id and payment_url columns to guests table.');
+  }
+
   console.log('Database migration complete.');
 }
 

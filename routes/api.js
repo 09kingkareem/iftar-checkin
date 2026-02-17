@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { generateSingleTicket } = require('../generate-pdf');
+const { verifyWebhookSignature } = require('../ziina');
 
 const router = express.Router();
 
@@ -231,6 +232,90 @@ router.get('/api/guests-paid', requireApiKey, async (req, res) => {
   if (!event) return res.json([]);
   const guests = await db.getPaidGuestsWithEmail(event.id);
   res.json(guests);
+});
+
+// ── Ziina Payment Webhook ──
+router.post('/api/webhook/ziina', async (req, res) => {
+  const secret = process.env.ZIINA_WEBHOOK_SECRET;
+  const signature = req.headers['x-hmac-signature'] || req.headers['x-webhook-signature'] || '';
+
+  // Verify HMAC if secret is configured
+  if (secret && signature) {
+    const rawBody = JSON.stringify(req.body);
+    if (!verifyWebhookSignature(rawBody, signature, secret)) {
+      console.error('Ziina webhook: invalid signature');
+      return res.status(401).json({ error: 'Invalid signature' });
+    }
+  }
+
+  const payload = req.body;
+  if (!payload) {
+    return res.status(400).json({ error: 'Invalid JSON' });
+  }
+
+  const paymentIntentId = payload.id || (payload.data && payload.data.id);
+  const status = payload.status || (payload.data && payload.data.status);
+
+  if (!paymentIntentId) {
+    return res.status(400).json({ error: 'Missing payment intent ID' });
+  }
+
+  console.log(`Ziina webhook: payment ${paymentIntentId} status=${status}`);
+
+  if (status === 'completed') {
+    const guest = await db.getGuestByPaymentIntent(paymentIntentId);
+    if (!guest) {
+      console.error(`Ziina webhook: no guest found for payment ${paymentIntentId}`);
+      return res.json({ received: true });
+    }
+
+    if (!guest.paid) {
+      await db.markGuestPaid(guest.id);
+
+      const event = await db.getActiveEvent();
+      if (event) {
+        await db.logActivity(event.id, 'ziina_payment', {
+          guestId: guest.id,
+          details: `Payment confirmed via Ziina for ${guest.name}`,
+        });
+      }
+
+      // Broadcast to dashboard
+      if (req.app.locals.broadcast) {
+        req.app.locals.broadcast({
+          type: 'payment_confirmed',
+          guest: { id: guest.id, name: guest.name, category: guest.category },
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // Auto-trigger badge send via n8n
+      const webhookUrl = process.env.N8N_WEBHOOK_URL;
+      if (webhookUrl && guest.email) {
+        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+        try {
+          await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'send_badge_single',
+              app_base_url: baseUrl,
+              api_key: process.env.N8N_API_KEY,
+              guest_id: guest.id,
+              guest_name: guest.name,
+              guest_email: guest.email,
+              event: event ? { name: event.name, date: event.event_date, time: event.event_time, venue: event.venue } : null,
+            }),
+          });
+          console.log(`Auto-triggered badge email for ${guest.name}`);
+        } catch (e) {
+          console.error('Failed to trigger badge email:', e.message);
+        }
+      }
+    }
+  }
+
+  res.json({ received: true });
 });
 
 // ── Announcements ──

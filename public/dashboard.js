@@ -10,6 +10,9 @@ ws.onmessage = function(event) {
     addActivityItem(data);
   } else if (data.type === 'duplicate_scan') {
     addDuplicateAlert(data);
+  } else if (data.type === 'payment_confirmed') {
+    refreshGuests();
+    addPaymentActivity(data);
   } else if (data.type === 'announcement') {
     showAnnouncementBanner(data.announcement);
   } else if (data.type === 'announcement_dismissed') {
@@ -106,6 +109,18 @@ async function togglePaid(id) {
       alert(data.error || 'Failed to update');
     }
   } catch (e) {}
+}
+
+function addPaymentActivity(data) {
+  if (!feed) return;
+  const first = feed.querySelector('.muted');
+  if (first) first.remove();
+  const item = document.createElement('div');
+  item.className = 'activity-item';
+  item.style.borderLeft = '3px solid #7C3AED';
+  const time = new Date(data.timestamp).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
+  item.innerHTML = `<span class="activity-time">${time}</span> <span class="activity-action">&#128179; ${esc(data.guest.name)} payment confirmed via Ziina</span>`;
+  feed.prepend(item);
 }
 
 // ── Activity Feed ──

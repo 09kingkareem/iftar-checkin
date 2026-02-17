@@ -89,6 +89,58 @@ router.get('/checkin/:token', async (req, res) => {
   }, lang, dir));
 });
 
+// Payment success page (redirect from Ziina after payment)
+router.get('/payment-success/:token', async (req, res) => {
+  const guest = await db.getGuestByToken(req.params.token);
+  const lang = (res.locals && res.locals.lang) || 'en';
+  const dir = (res.locals && res.locals.dir) || 'ltr';
+
+  if (!guest) {
+    return res.send(renderCheckin({
+      status: 'error',
+      icon: '&#10060;',
+      heading: 'Invalid Link',
+      message: 'This payment link is not valid.',
+    }, lang, dir));
+  }
+
+  res.send(renderPaymentSuccess(guest, lang, dir));
+});
+
+router.get('/payment-cancelled', (req, res) => {
+  const lang = (res.locals && res.locals.lang) || 'en';
+  const dir = (res.locals && res.locals.dir) || 'ltr';
+  res.send(renderCheckin({
+    status: 'already',
+    icon: '&#9888;&#65039;',
+    heading: 'Payment Cancelled',
+    message: 'Your payment was cancelled. You can try again using the link in your invitation email.',
+  }, lang, dir));
+});
+
+function renderPaymentSuccess(guest, lang = 'en', dir = 'ltr') {
+  return `<!DOCTYPE html>
+<html lang="${lang}" dir="${dir}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Confirmed</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="checkin-page">
+    <div class="checkin-card success">
+      <div class="checkin-icon">&#9989;</div>
+      <h1>Payment Confirmed!</h1>
+      <p style="font-size:1.3rem;margin-bottom:8px">${escapeHtml(guest.name)}</p>
+      <p>Thank you for your payment. Your invitation badge with QR code will be sent to your email shortly.</p>
+      <p class="checkin-subtitle" style="margin-top:16px;color:#d4af37">Ramadan Kareem &#127769;</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 function renderCheckin({ status, icon, heading, message, subtitle = '' }, lang = 'en', dir = 'ltr') {
   const subtitleHtml = subtitle ? `<p class="checkin-subtitle">${subtitle}</p>` : '';
   return `<!DOCTYPE html>
