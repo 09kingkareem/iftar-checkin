@@ -278,7 +278,7 @@ router.post('/api/register-from-form', requireApiKey, async (req, res) => {
   for (const [k, v] of Object.entries(req.body)) {
     body[k.trim()] = typeof v === 'string' ? v.trim() : v;
   }
-  const { email, name, grade, attendance, attendance_type, family_size, dietary, phone, volunteer, suggestions } = body;
+  const { email, name, grade, attendance, attendance_type, family_size, dietary, phone, volunteer, suggestions, category: rawCategory } = body;
 
   if (!name) return res.status(400).json({ error: 'Name is required' });
 
@@ -288,16 +288,17 @@ router.post('/api/register-from-form', requireApiKey, async (req, res) => {
   }
 
   // Check for duplicate by email within this event
-  if (email && email.trim()) {
+  if (email) {
     const existing = await db.getAllGuests(event.id);
-    const duplicate = existing.find(g => g.email && g.email.toLowerCase() === email.trim().toLowerCase());
+    const duplicate = existing.find(g => g.email && g.email.toLowerCase() === email.toLowerCase());
     if (duplicate) {
       return res.json({ status: 'duplicate', reason: 'Email already registered', guest: duplicate });
     }
   }
 
   // Determine category and family size
-  let category = 'student';
+  const VALID_CATEGORIES = ['student', 'parent', 'teacher', 'vip', 'guest', 'family'];
+  let category = rawCategory && VALID_CATEGORIES.includes(rawCategory.toLowerCase()) ? rawCategory.toLowerCase() : 'student';
   let size = 1;
   if (attendance_type && attendance_type.toLowerCase().includes('family')) {
     category = 'family';
