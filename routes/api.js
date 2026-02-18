@@ -267,6 +267,68 @@ router.get('/api/guests-paid', requireApiKey, async (req, res) => {
   res.json(guests);
 });
 
+// ── Google Form Registration ──
+// Called by n8n when a new Google Form response arrives
+router.post('/api/register-from-form', requireApiKey, async (req, res) => {
+  const event = await db.getActiveEvent();
+  if (!event) return res.status(400).json({ error: 'No active event' });
+
+  const { email, name, grade, attendance, attendance_type, family_size, dietary, phone, volunteer, suggestions } = req.body;
+
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+
+  // Skip guests who said "No" to attending
+  if (attendance && attendance.toLowerCase() === 'no') {
+    return res.json({ status: 'skipped', reason: 'Guest declined attendance' });
+  }
+
+  // Check for duplicate by email within this event
+  if (email && email.trim()) {
+    const existing = await db.getAllGuests(event.id);
+    const duplicate = existing.find(g => g.email && g.email.toLowerCase() === email.trim().toLowerCase());
+    if (duplicate) {
+      return res.json({ status: 'duplicate', reason: 'Email already registered', guest: duplicate });
+    }
+  }
+
+  // Determine category and family size
+  let category = 'student';
+  let size = 1;
+  if (attendance_type && attendance_type.toLowerCase().includes('family')) {
+    category = 'family';
+    size = parseInt(family_size) || 2;
+  }
+
+  // Build notes from extra fields
+  const notesParts = [];
+  if (grade) notesParts.push(`Grade: ${grade}`);
+  if (attendance && attendance.toLowerCase() === 'maybe') notesParts.push('Attendance: Maybe');
+  if (volunteer && (volunteer === true || volunteer.toString().toLowerCase() === 'yes')) notesParts.push('Wants to volunteer');
+  if (suggestions && suggestions.trim()) notesParts.push(`Suggestions: ${suggestions.trim()}`);
+
+  const guest = await db.addSingleGuest(event.id, {
+    name: name.trim(),
+    category,
+    dietary_restrictions: dietary || null,
+    table_number: grade || null,
+    phone: phone || null,
+    email: email ? email.trim() : null,
+    family_size: size,
+  });
+
+  // Store extra info in notes field
+  if (notesParts.length > 0) {
+    await db.pool.query('UPDATE guests SET notes = $1 WHERE id = $2', [notesParts.join(' | '), guest.id]);
+  }
+
+  await db.logActivity(event.id, 'form_registration', {
+    guestId: guest.id,
+    details: `${guest.name} registered via Google Form${grade ? ` (${grade})` : ''}`,
+  });
+
+  res.json({ status: 'created', guest });
+});
+
 // ── Ziina Payment Webhook ──
 router.post('/api/webhook/ziina', async (req, res) => {
   const secret = process.env.ZIINA_WEBHOOK_SECRET;
