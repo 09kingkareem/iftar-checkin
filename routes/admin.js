@@ -471,6 +471,10 @@ router.post('/admin/users/:id/delete', requireSuperAdmin, async (req, res) => {
   if (user.id === req.session.user.id) return res.redirect('/admin/users?error=Cannot+delete+yourself');
   if (user.role === 'superadmin') return res.redirect('/admin/users?error=Cannot+delete+a+superadmin');
 
+  // Clear foreign key references before deleting
+  await db.pool.query('UPDATE announcements SET created_by = NULL WHERE created_by = $1', [user.id]);
+  await db.pool.query('UPDATE activity_log SET user_id = NULL WHERE user_id = $1', [user.id]);
+  await db.pool.query('UPDATE guests SET checked_in_by = NULL WHERE checked_in_by = $1', [user.id]);
   await db.pool.query('DELETE FROM users WHERE id = $1', [user.id]);
 
   const event = await db.getActiveEvent();
