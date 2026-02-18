@@ -431,15 +431,19 @@ router.post('/admin/event', requireSuperAdmin, async (req, res) => {
 // ── User Management ──
 router.get('/admin/users', requireSuperAdmin, async (req, res) => {
   const users = await db.getAllUsers();
-  res.send(renderUsersPage(users, req.session.user, res.locals.lang || 'en', res.locals.dir || 'ltr'));
+  res.send(renderUsersPage(users, req.session.user, res.locals.lang || 'en', res.locals.dir || 'ltr', req.query.error, req.query.success));
 });
 
 router.post('/admin/users/create', requireSuperAdmin, async (req, res) => {
   const { username, password, display_name, role } = req.body;
-  if (!username || !password || !display_name) return res.redirect('/admin/users');
+  if (!username || !password || !display_name) {
+    return res.redirect('/admin/users?error=All+fields+are+required');
+  }
 
   const existing = await db.getUserByUsername(username.trim().toLowerCase());
-  if (existing) return res.redirect('/admin/users');
+  if (existing) {
+    return res.redirect('/admin/users?error=Username+already+exists');
+  }
 
   const hash = await bcrypt.hash(password, 12);
   await db.createUser({
@@ -450,7 +454,7 @@ router.post('/admin/users/create', requireSuperAdmin, async (req, res) => {
     created_by: req.session.user.id,
   });
 
-  res.redirect('/admin/users');
+  res.redirect('/admin/users?success=User+created');
 });
 
 router.post('/admin/users/:id/toggle', requireSuperAdmin, async (req, res) => {
@@ -459,6 +463,25 @@ router.post('/admin/users/:id/toggle', requireSuperAdmin, async (req, res) => {
     await db.updateUserActive(user.id, !user.is_active);
   }
   res.redirect('/admin/users');
+});
+
+router.post('/admin/users/:id/delete', requireSuperAdmin, async (req, res) => {
+  const user = await db.getUserById(Number(req.params.id));
+  if (!user) return res.redirect('/admin/users');
+  if (user.id === req.session.user.id) return res.redirect('/admin/users?error=Cannot+delete+yourself');
+  if (user.role === 'superadmin') return res.redirect('/admin/users?error=Cannot+delete+a+superadmin');
+
+  await db.pool.query('DELETE FROM users WHERE id = $1', [user.id]);
+
+  const event = await db.getActiveEvent();
+  if (event) {
+    await db.logActivity(event.id, 'delete_user', {
+      userId: req.session.user.id,
+      details: `${req.session.user.display_name} deleted user: ${user.display_name} (${user.username})`,
+    });
+  }
+
+  res.redirect('/admin/users?success=User+deleted');
 });
 
 // ── Report PDF ──
@@ -1019,7 +1042,7 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
 </html>`;
 }
 
-function renderUsersPage(users, currentUser, lang = 'en', dir = 'ltr') {
+function renderUsersPage(users, currentUser, lang = 'en', dir = 'ltr', error = '', success = '') {
   const L = (key) => t(lang, key);
   const rows = users.map(u => `
     <tr class="${u.is_active ? '' : 'row-inactive'}">
@@ -1035,6 +1058,9 @@ function renderUsersPage(users, currentUser, lang = 'en', dir = 'ltr') {
               ${u.is_active ? L('users.deactivate') : L('users.activate')}
             </button>
           </form>
+          ${u.role !== 'superadmin' ? `<form method="POST" action="/admin/users/${u.id}/delete" style="display:inline;margin-left:4px">
+            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete user ${escapeHtml(u.display_name)}? This cannot be undone.')">Delete</button>
+          </form>` : ''}
         ` : `<span class="muted">${L('users.you')}</span>`}
       </td>
     </tr>
@@ -1052,6 +1078,9 @@ function renderUsersPage(users, currentUser, lang = 'en', dir = 'ltr') {
   ${renderNav(currentUser, 'users', lang)}
   <div class="container">
     <h1>${L('users.title')}</h1>
+
+    ${error ? `<div style="background:rgba(231,76,60,0.15);border:1px solid rgba(231,76,60,0.3);border-radius:8px;padding:12px 16px;margin-bottom:16px;color:#e74c3c;font-weight:600">${escapeHtml(error)}</div>` : ''}
+    ${success ? `<div style="background:rgba(46,204,113,0.15);border:1px solid rgba(46,204,113,0.3);border-radius:8px;padding:12px 16px;margin-bottom:16px;color:#2ecc71;font-weight:600">${escapeHtml(success)}</div>` : ''}
 
     <div class="card">
       <h2>${L('users.create')}</h2>
