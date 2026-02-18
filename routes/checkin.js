@@ -22,6 +22,15 @@ router.get('/checkin/:token', async (req, res) => {
     }, lang, dir));
   }
 
+  if (guest.badge_active === false) {
+    return res.send(renderCheckin({
+      status: 'error',
+      icon: '&#128683;',
+      heading: 'Badge Deactivated',
+      message: 'This badge has been deactivated. Please see a volunteer for assistance.',
+    }, lang, dir));
+  }
+
   if (guest.checked_in) {
     await db.incrementScanCount(guest.id);
 

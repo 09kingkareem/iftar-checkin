@@ -704,6 +704,7 @@ function renderDashboard(event, user, lang = 'en', dir = 'ltr') {
                 <th>${L('table.table')}</th>
                 <th>${L('table.dietary')}</th>
                 ${_isAdmin ? '<th>Paid</th>' : ''}
+                ${_isAdmin ? '<th>Badge</th>' : ''}
                 <th>${L('table.status')}</th>
                 <th>${L('table.time')}</th>
                 <th>${L('table.actions')}</th>

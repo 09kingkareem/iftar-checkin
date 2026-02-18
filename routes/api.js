@@ -55,6 +55,10 @@ router.post('/api/checkin/:id', requireAuth, async (req, res) => {
   const guest = await db.getGuestById(Number(req.params.id));
   if (!guest) return res.status(404).json({ error: 'Guest not found' });
 
+  if (guest.badge_active === false) {
+    return res.status(403).json({ error: 'Badge has been deactivated. Please see an admin.' });
+  }
+
   const event = await db.getActiveEvent();
   const user = req.session.user;
 
@@ -219,6 +223,30 @@ router.post('/api/guests/:id/paid', requireAuth, async (req, res) => {
       guestId: guest.id,
       userId: user.id,
       details: `${user.display_name} marked ${guest.name} as ${guest.paid ? 'unpaid' : 'paid'}`,
+    });
+  }
+
+  const updated = await db.getGuestById(guest.id);
+  res.json({ status: 'ok', guest: updated });
+});
+
+// ── Badge Active Toggle ──
+router.post('/api/guests/:id/badge-toggle', requireAuth, async (req, res) => {
+  const user = req.session.user;
+  if (user.role !== 'admin' && user.role !== 'superadmin') return res.status(403).json({ error: 'Admin only' });
+
+  const guest = await db.getGuestById(Number(req.params.id));
+  if (!guest) return res.status(404).json({ error: 'Guest not found' });
+
+  const newActive = !guest.badge_active;
+  await db.setBadgeActive(guest.id, newActive);
+
+  const event = await db.getActiveEvent();
+  if (event) {
+    await db.logActivity(event.id, newActive ? 'badge_activated' : 'badge_deactivated', {
+      guestId: guest.id,
+      userId: user.id,
+      details: `${user.display_name} ${newActive ? 'activated' : 'deactivated'} badge for ${guest.name}`,
     });
   }
 

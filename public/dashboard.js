@@ -60,7 +60,7 @@ async function refreshGuests(search = '') {
     const tbody = document.getElementById('guest-list');
     if (!tbody) return;
 
-    const colSpan = IS_ADMIN ? 8 : 7;
+    const colSpan = IS_ADMIN ? 9 : 7;
     tbody.innerHTML = guests.length === 0
       ? `<tr><td colspan="${colSpan}" class="text-center muted" style="padding:20px">No guests found</td></tr>`
       : guests.map(g => `
@@ -77,6 +77,11 @@ async function refreshGuests(search = '') {
           ${IS_ADMIN ? `<td>
             <span class="badge ${g.paid ? 'badge-checked' : 'badge-pending'}" style="cursor:pointer" onclick="togglePaid(${g.id})" title="Click to toggle">
               ${g.paid ? '&#9989; Paid' : 'Unpaid'}
+            </span>
+          </td>` : ''}
+          ${IS_ADMIN ? `<td>
+            <span class="badge ${g.badge_active !== false ? 'badge-checked' : 'badge-pending'}" style="cursor:pointer;${g.badge_active === false ? 'background:rgba(231,76,60,0.15);color:#e74c3c' : ''}" onclick="toggleBadge(${g.id})" title="Click to toggle badge">
+              ${g.badge_active !== false ? 'Active' : '&#128683; Deactivated'}
             </span>
           </td>` : ''}
           <td><span class="badge ${g.checked_in ? 'badge-checked' : 'badge-pending'}">${g.checked_in ? 'Checked In' : 'Pending'}</span></td>
@@ -107,6 +112,19 @@ async function manualCheckin(id) {
 async function togglePaid(id) {
   try {
     const res = await fetch(`/api/guests/${id}/paid`, { method: 'POST' });
+    if (res.ok) {
+      refreshGuests();
+    } else {
+      const data = await res.json();
+      alert(data.error || 'Failed to update');
+    }
+  } catch (e) {}
+}
+
+// ── Toggle Badge Active ──
+async function toggleBadge(id) {
+  try {
+    const res = await fetch(`/api/guests/${id}/badge-toggle`, { method: 'POST' });
     if (res.ok) {
       refreshGuests();
     } else {

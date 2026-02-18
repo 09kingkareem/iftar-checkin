@@ -234,6 +234,11 @@ async function getCheckinTimeline(eventId) {
   return rows;
 }
 
+// ── Badge Activation ──
+async function setBadgeActive(id, active) {
+  await pool.query('UPDATE guests SET badge_active = $1 WHERE id = $2', [active, id]);
+}
+
 // ── Payment Tracking ──
 async function markGuestPaid(id) {
   await pool.query('UPDATE guests SET paid = true WHERE id = $1', [id]);
@@ -309,6 +314,7 @@ module.exports = {
   addGuests, addGuestsBulk, addSingleGuest, getAllGuests, getGuestByToken, getGuestById,
   checkInGuest, incrementScanCount, searchGuests, getStats, updateGuest, deleteGuest, deleteAllGuests,
   logActivity, getRecentActivity, getCheckinTimeline,
+  setBadgeActive,
   markGuestPaid, markGuestUnpaid, getPaidGuestsWithEmail, markBadgesSent,
   setGuestPayment, getGuestByPaymentIntent,
   createAnnouncement, getActiveAnnouncement, dismissAnnouncement,

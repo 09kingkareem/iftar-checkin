@@ -175,6 +175,16 @@ async function migrate(pool) {
     console.log('Added badge_sent and badge_sent_at columns to guests table.');
   }
 
+  // Auto-migrate: add badge_active column to guests
+  const { rows: badgeActiveCol } = await pool.query(`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'guests' AND column_name = 'badge_active'
+  `);
+  if (badgeActiveCol.length === 0) {
+    await pool.query('ALTER TABLE guests ADD COLUMN badge_active BOOLEAN DEFAULT true');
+    console.log('Added badge_active column to guests table.');
+  }
+
   console.log('Database migration complete.');
 }
 
