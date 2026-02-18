@@ -273,9 +273,10 @@ router.post('/api/register-from-form', requireApiKey, async (req, res) => {
   const event = await db.getActiveEvent();
   if (!event) return res.status(400).json({ error: 'No active event' });
 
+  console.log('Form registration body:', JSON.stringify(req.body));
   const { email, name, grade, attendance, attendance_type, family_size, dietary, phone, volunteer, suggestions } = req.body;
 
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required', received_keys: Object.keys(req.body) });
 
   // Skip guests who said "No" to attending
   if (attendance && attendance.toLowerCase() === 'no') {
