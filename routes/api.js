@@ -278,7 +278,8 @@ router.post('/api/register-from-form', requireApiKey, async (req, res) => {
   for (const [k, v] of Object.entries(req.body)) {
     body[k.trim()] = typeof v === 'string' ? v.trim() : v;
   }
-  const { email, name, grade, attendance, attendance_type, family_size, dietary, phone, volunteer, suggestions, category: rawCategory } = body;
+  const { email, name, grade, attendance, attendance_type, family_size, dietary, phone, volunteer, suggestions, category: rawCategory, role } = body;
+  const formCategory = rawCategory || role;
 
   if (!name) return res.status(400).json({ error: 'Name is required' });
 
@@ -298,7 +299,7 @@ router.post('/api/register-from-form', requireApiKey, async (req, res) => {
 
   // Determine category and family size
   const VALID_CATEGORIES = ['student', 'parent', 'teacher', 'vip', 'guest', 'family'];
-  let category = rawCategory && VALID_CATEGORIES.includes(rawCategory.toLowerCase()) ? rawCategory.toLowerCase() : 'student';
+  let category = formCategory && VALID_CATEGORIES.includes(formCategory.toLowerCase()) ? formCategory.toLowerCase() : 'student';
   let size = 1;
   if (attendance_type && attendance_type.toLowerCase().includes('family')) {
     category = 'family';
@@ -313,12 +314,12 @@ router.post('/api/register-from-form', requireApiKey, async (req, res) => {
   if (suggestions && suggestions.trim()) notesParts.push(`Suggestions: ${suggestions.trim()}`);
 
   const guest = await db.addSingleGuest(event.id, {
-    name: name.trim(),
+    name,
     category,
     dietary_restrictions: dietary || null,
-    table_number: grade || null,
+    table_number: null,
     phone: phone || null,
-    email: email ? email.trim() : null,
+    email: email || null,
     family_size: size,
   });
 
