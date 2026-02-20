@@ -271,10 +271,11 @@ router.post('/admin/send-invitations', requireSuperAdmin, async (req, res) => {
 
     for (const guest of guestsWithEmail) {
       try {
+        const guestAmount = amount * (guest.family_size || 1);
         const payment = await ziina.createPaymentIntent({
-          amount,
+          amount: guestAmount,
           currency,
-          message: `Iftar — ${guest.name}`,
+          message: `Iftar — ${guest.name}${guest.family_size > 1 ? ` (${guest.family_size} guests)` : ''}`,
           successUrl: `${baseUrl}/payment-success/${guest.token}`,
           cancelUrl: `${baseUrl}/payment-cancelled`,
         });
