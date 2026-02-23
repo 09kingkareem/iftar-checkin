@@ -254,6 +254,29 @@ router.post('/api/guests/:id/badge-toggle', requireAuth, async (req, res) => {
   res.json({ status: 'ok', guest: updated });
 });
 
+// ── Reset badge_sent for a guest (so badge can be resent) ──
+router.post('/api/guests/:id/reset-badge', requireAuth, async (req, res) => {
+  const user = req.session.user;
+  if (user.role !== 'admin' && user.role !== 'superadmin') return res.status(403).json({ error: 'Admin only' });
+
+  const guest = await db.getGuestById(Number(req.params.id));
+  if (!guest) return res.status(404).json({ error: 'Guest not found' });
+
+  await db.pool.query('UPDATE guests SET badge_sent = false, badge_sent_at = NULL WHERE id = $1', [guest.id]);
+
+  const event = await db.getActiveEvent();
+  if (event) {
+    await db.logActivity(event.id, 'reset_badge', {
+      guestId: guest.id,
+      userId: user.id,
+      details: `${user.display_name} reset badge for ${guest.name} (will be resent)`,
+    });
+  }
+
+  const updated = await db.getGuestById(guest.id);
+  res.json({ status: 'ok', guest: updated });
+});
+
 // ── n8n: Get paid guests with emails (for sending badges) ──
 // Returns only paid guests who haven't received badges yet, then marks them as sent
 router.get('/api/guests-paid', requireApiKey, async (req, res) => {
@@ -391,30 +414,9 @@ router.post('/api/webhook/ziina', async (req, res) => {
         });
       }
 
-      // Auto-trigger badge send via n8n and mark as sent
-      const webhookUrl = process.env.N8N_WEBHOOK_URL;
-      if (webhookUrl && guest.email) {
-        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-        try {
-          await fetch(webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'send_badge_single',
-              app_base_url: baseUrl,
-              api_key: process.env.N8N_API_KEY,
-              guest_id: guest.id,
-              guest_name: guest.name,
-              guest_email: guest.email,
-              event: event ? { name: event.name, date: event.event_date, time: event.event_time, venue: event.venue } : null,
-            }),
-          });
-          await db.markBadgesSent([guest.id]);
-          console.log(`Auto-triggered badge email for ${guest.name}`);
-        } catch (e) {
-          console.error('Failed to trigger badge email:', e.message);
-        }
-      }
+      // Note: badge will be sent when admin clicks "Send Badges to Paid"
+      // or when n8n fetches /api/guests-paid (which marks them as sent)
+      console.log(`Payment confirmed for ${guest.name} — badge pending send`);
     }
   }
 
