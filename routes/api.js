@@ -414,9 +414,30 @@ router.post('/api/webhook/ziina', async (req, res) => {
         });
       }
 
-      // Note: badge will be sent when admin clicks "Send Badges to Paid"
-      // or when n8n fetches /api/guests-paid (which marks them as sent)
-      console.log(`Payment confirmed for ${guest.name} — badge pending send`);
+      // Auto-trigger badge send via n8n (badge_sent is NOT marked here —
+      // it gets marked when n8n fetches /api/guests-paid or admin sends manually)
+      const webhookUrl = process.env.N8N_WEBHOOK_URL;
+      if (webhookUrl && guest.email) {
+        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+        try {
+          await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'send_badge_single',
+              app_base_url: baseUrl,
+              api_key: process.env.N8N_API_KEY,
+              guest_id: guest.id,
+              guest_name: guest.name,
+              guest_email: guest.email,
+              event: event ? { name: event.name, date: event.event_date, time: event.event_time, venue: event.venue } : null,
+            }),
+          });
+          console.log(`Auto-triggered badge email for ${guest.name}`);
+        } catch (e) {
+          console.error('Failed to trigger badge email:', e.message);
+        }
+      }
     }
   }
 
