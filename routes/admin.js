@@ -130,7 +130,8 @@ router.post('/admin/guest/add', requireAdmin, async (req, res) => {
   if (!name || !name.trim()) return res.redirect('/admin');
 
   const guest = await db.addSingleGuest(event.id, {
-    name, category, dietary_restrictions: dietary, table_number, phone, email, family_size,
+    name, category, dietary_restrictions: dietary, table_number, phone, email,
+    family_size: category === 'family' ? family_size : 1,
   });
 
   await db.logActivity(event.id, 'add_guest', {
