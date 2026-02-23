@@ -136,12 +136,12 @@ router.get('/api/guests/:id', requireAuth, async (req, res) => {
   res.json(guest);
 });
 
-// ── n8n: Get guests with email addresses ──
+// ── n8n: Get guests with email addresses (unpaid only — for sending payment invitations) ──
 router.get('/api/guests-with-email', requireApiKey, async (req, res) => {
   const event = await db.getActiveEvent();
   if (!event) return res.json([]);
   const guests = await db.getAllGuests(event.id);
-  const withEmail = guests.filter(g => g.email && g.email.trim());
+  const withEmail = guests.filter(g => g.email && g.email.trim() && !g.paid);
   res.json(withEmail);
 });
 

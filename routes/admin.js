@@ -265,7 +265,7 @@ router.post('/admin/send-invitations', requireSuperAdmin, async (req, res) => {
   // Create Ziina payment links per guest if API key is configured
   if (process.env.ZIINA_API_KEY) {
     const guests = await db.getAllGuests(event.id);
-    const guestsWithEmail = guests.filter(g => g.email && g.email.trim() && !g.payment_url);
+    const guestsWithEmail = guests.filter(g => g.email && g.email.trim() && !g.payment_url && !g.paid);
     const amount = parseInt(process.env.ZIINA_AMOUNT) || 50;
     const currency = process.env.ZIINA_CURRENCY || 'AED';
     let created = 0;
